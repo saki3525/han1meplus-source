@@ -1,0 +1,43 @@
+name: Sync upstream
+
+# 把上游 1wc10086/Han1mePlus 的 main 分支镜像到本仓库的一个分支里。
+# 纯镜像用途（方便本地看代码 / 自己编译），跟生成 source.json 完全独立，
+# 生成 JSON 并不需要这个分支。
+
+on:
+  schedule:
+    - cron: "43 */12 * * *"
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "把上游 main 镜像到本仓库的哪个分支"
+        required: false
+        default: upstream
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    name: 镜像上游 main
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 让本地不是浅克隆，否则推过去的镜像会缺历史。
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 拉取并强推
+        env:
+          # workflow_dispatch 时可以指定目标分支；定时触发时用默认值。
+          TARGET: ${{ inputs.branch || 'upstream' }}
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/1wc10086/Han1mePlus.git
+          git fetch --no-tags upstream "+refs/heads/main:refs/remotes/upstream/main"
+          git push --force origin "refs/remotes/upstream/main:refs/heads/${TARGET}"
+          echo "已把上游 main 镜像到 ${TARGET}"

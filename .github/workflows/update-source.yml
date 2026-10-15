@@ -1,0 +1,55 @@
+name: Update AltStore source
+
+# 定时从上游 1wc10086/Han1mePlus 的 Releases 里读取最新 ipa，重新生成
+# altstore/source.json 并提交。生成器只调用 Releases API + raw.githubusercontent，
+# 不需要拉取上游代码，所以这个仓库可以保持很小。
+
+on:
+  schedule:
+    # 每 6 小时跑一次。GitHub 的高峰期可能会延迟几分钟到几十分钟，属正常现象。
+    - cron: "23 */6 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    # 只有改动生成器本身时才顺带重跑；bot 提交的是 source.json，不在此列，不会形成循环。
+    paths:
+      - "altstore/generate.py"
+      - ".github/workflows/update-source.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-source
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: 重新生成 source.json
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: 生成
+        env:
+          REPO: 1wc10086/Han1mePlus
+          REF: main
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 altstore/generate.py
+
+      - name: 有变化才提交
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- altstore/source.json; then
+            echo "上游没有新版本，source.json 无需更新。"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add altstore/source.json
+          git commit -m "chore: refresh source.json from upstream releases"
+          git push

@@ -16,7 +16,6 @@ on:
 
 permissions:
   contents: write
-  workflows: write
 
 concurrency:
   group: sync-upstream
@@ -31,6 +30,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.MIRROR_PAT }}   # 关键：让 origin 记住的是 PAT 而不是 GITHUB_TOKEN
 
       - name: 拉取并强推
         env:

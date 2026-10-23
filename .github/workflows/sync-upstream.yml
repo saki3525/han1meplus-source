@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # fetch-depth: 0 让本地不是浅克隆，否则推过去的镜像会缺历史。
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           token: ${{ secrets.MIRROR_PAT }}   # 关键：让 origin 记住的是 PAT 而不是 GITHUB_TOKEN

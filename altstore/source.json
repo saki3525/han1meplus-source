@@ -29,6 +29,16 @@
       "minOSVersion": "15.0",
       "versions": [
         {
+          "version": "1.2.4",
+          "buildVersion": "25",
+          "date": "2026-10-25T17:16:43Z",
+          "localizedDescription": "### 更新内容\n- #110 支持ech直连。\n- #111 支持ech直连。\n- #113  #112 修复视频比例相关问题。\n- #109 修复Javchu 站点视频无法拖动。",
+          "downloadURL": "https://github.com/1wc10086/Han1mePlus/releases/download/v1.2.4/iphone.arm64.ipa",
+          "size": 19905344,
+          "minOSVersion": "15.0",
+          "sha256": "7efd82a9cebf201a993a38564de21d0068fccc9a88e9e6cf24e32dee17b82146"
+        },
+        {
           "version": "1.2.3",
           "buildVersion": "24",
           "date": "2026-10-13T01:51:57Z",

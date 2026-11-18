@@ -29,6 +29,16 @@
       "minOSVersion": "15.0",
       "versions": [
         {
+          "version": "1.2.5",
+          "buildVersion": "26",
+          "date": "2026-11-18T05:21:38Z",
+          "localizedDescription": "### 更新内容\n- #115 在用户关闭启用评论区设置项后，播放界面将不显示评论tab。\n- #118 增加视频播放界面功能栏常驻设置。\n- #119 增加播放界面竖屏视频比例适配,修复折叠滑动速度异常。\n- #121 尝试性修复cloudflare重复检测。\n- 增加ech开关设置。",
+          "downloadURL": "https://github.com/1wc10086/Han1mePlus/releases/download/v1.2.5/iphone.arm64.ipa",
+          "size": 20178005,
+          "minOSVersion": "15.0",
+          "sha256": "ff303d2b7ef63e71d779294b5cdec87e7500a2f41d518fe4b2c40af967cf52a7"
+        },
+        {
           "version": "1.2.4",
           "buildVersion": "25",
           "date": "2026-10-25T17:16:43Z",

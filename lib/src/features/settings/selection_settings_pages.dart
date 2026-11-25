@@ -1,6 +1,3 @@
-import 'package:card_settings_ui/list/settings_list.dart';
-import 'package:card_settings_ui/section/settings_section.dart';
-import 'package:card_settings_ui/tile/settings_tile.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -9,8 +6,8 @@ import '../../core/playback_speed_policy.dart';
 import '../../core/settings.dart';
 import '../account/account_controller.dart';
 import '../explore/explore_controller.dart';
+import 'settings_card_list.dart';
 import 'settings_controller.dart';
-import 'settings_surface.dart';
 
 class SiteSettingsPage extends ConsumerWidget {
   const SiteSettingsPage({super.key});
@@ -26,28 +23,24 @@ class SiteSettingsPage extends ConsumerWidget {
     final hosts = settings.comicMode ? const ['https://hanimeone.me'] : _hosts;
     return Scaffold(
       appBar: AppBar(title: Text(l10n.site)),
-      body: SettingsSurface(
-        child: SettingsList(
-          sections: [
-            SettingsSection(
-              title: Text(l10n.site, style: TextStyle(color: Theme.of(context).colorScheme.primary)),
-              tiles: [
-                for (final host in hosts)
-                  SettingsTile<String>.radioTile(
-                    radioValue: host,
-                    groupValue: current,
-                    title: Text(host),
-                    onChanged: (value) async {
-                      if (value == null || value == current) return;
-                      await ref.read(settingsProvider.notifier).saveChanges((settings) => settings.copyWith(baseUrl: value, videoBaseUrl: settings.comicMode ? settings.videoBaseUrl : value, useCustomMirrorSite: false, customMirrorSite: ''));
-                      ref.invalidate(accountProvider);
-                      ref.invalidate(homeSectionsProvider);
-                    },
-                  ),
-              ],
-            ),
-          ],
-        ),
+      body: ListView(
+        padding: EdgeInsets.only(top: 8, bottom: 24 + MediaQuery.paddingOf(context).bottom),
+        children: [
+          SettingsCardList(title: l10n.site, children: [
+            for (final host in hosts)
+              SettingsRadioItem(
+                title: host,
+                value: host,
+                selected: current == host,
+                onSelected: (value) async {
+                  if (value == current) return;
+                  await ref.read(settingsProvider.notifier).saveChanges((settings) => settings.copyWith(baseUrl: value, videoBaseUrl: settings.comicMode ? settings.videoBaseUrl : value, useCustomMirrorSite: false, customMirrorSite: ''));
+                  ref.invalidate(accountProvider);
+                  ref.invalidate(homeSectionsProvider);
+                },
+              ),
+          ]),
+        ],
       ),
     );
   }
@@ -116,18 +109,14 @@ class _RadioSettingsPage<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: Text(title)),
-        body: SettingsSurface(
-          child: SettingsList(
-            sections: [
-              SettingsSection(
-                title: Text(title, style: TextStyle(color: Theme.of(context).colorScheme.primary)),
-                tiles: [
-                  for (final option in options)
-                    SettingsTile<T>.radioTile(radioValue: option, groupValue: current, title: Text(label(option)), onChanged: (value) { if (value != null) onChanged(value); }),
-                ],
-              ),
-            ],
-          ),
+        body: ListView(
+          padding: EdgeInsets.only(top: 8, bottom: 24 + MediaQuery.paddingOf(context).bottom),
+          children: [
+            SettingsCardList(title: title, children: [
+              for (final option in options)
+                SettingsRadioItem(title: label(option), value: option, selected: option == current, onSelected: onChanged),
+            ]),
+          ],
         ),
       );
 }

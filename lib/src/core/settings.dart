@@ -21,7 +21,7 @@ enum SuperResolutionMode { off, efficiency, quality }
 
 enum VideoAspectRatio { auto, crop, stretch, ratio4x3 }
 
-const defaultLibraryTabKeys = ['watch-later', 'favorites', 'playlists', 'subscriptions', 'history'];
+const defaultLibraryTabKeys = ['watch-later', 'favorites', 'playlists', 'subscriptions'];
 
 extension PlayerEngineX on PlayerEngine {
   static List<PlayerEngine> get available {
@@ -99,7 +99,7 @@ class AppSettings {
     this.useCompactSearchCards = true,
     this.expandHomeVideoCards = false,
     this.useNavigationDrawer = false,
-    this.useLiquidGlassBottomBar = true,
+    this.useFloatingNavigationBar = true,
     this.useHomeCategoryTabs = false,
     this.showHomeFeatured = true,
     this.homeSectionOrder = const [],
@@ -181,7 +181,7 @@ class AppSettings {
   final bool useCompactSearchCards;
   final bool expandHomeVideoCards;
   final bool useNavigationDrawer;
-  final bool useLiquidGlassBottomBar;
+  final bool useFloatingNavigationBar;
   final bool useHomeCategoryTabs;
   final bool showHomeFeatured;
   final List<String> homeSectionOrder;
@@ -297,7 +297,7 @@ class AppSettings {
         'useCompactSearchCards': useCompactSearchCards,
         'expandHomeVideoCards': expandHomeVideoCards,
         'useNavigationDrawer': useNavigationDrawer,
-        'useLiquidGlassBottomBar': useLiquidGlassBottomBar,
+        'useFloatingNavigationBar': useFloatingNavigationBar,
         'useHomeCategoryTabs': useHomeCategoryTabs,
         'showHomeFeatured': showHomeFeatured,
         'homeSectionOrder': homeSectionOrder,
@@ -380,7 +380,7 @@ class AppSettings {
         useCompactSearchCards: json['useCompactSearchCards'] as bool? ?? true,
         expandHomeVideoCards: json['expandHomeVideoCards'] as bool? ?? false,
         useNavigationDrawer: json['useNavigationDrawer'] as bool? ?? false,
-        useLiquidGlassBottomBar: json['useLiquidGlassBottomBar'] as bool? ?? true,
+        useFloatingNavigationBar: json['useFloatingNavigationBar'] as bool? ?? json['useLiquidGlassBottomBar'] as bool? ?? true,
         useHomeCategoryTabs: json['useHomeCategoryTabs'] as bool? ?? false,
         showHomeFeatured: json['showHomeFeatured'] as bool? ?? true,
         homeSectionOrder: (json['homeSectionOrder'] as List? ?? const []).whereType<String>().toList(),
@@ -508,7 +508,7 @@ class AppSettings {
     bool? useCompactSearchCards,
     bool? expandHomeVideoCards,
     bool? useNavigationDrawer,
-    bool? useLiquidGlassBottomBar,
+    bool? useFloatingNavigationBar,
     bool? useHomeCategoryTabs,
     bool? showHomeFeatured,
     List<String>? homeSectionOrder,
@@ -590,7 +590,7 @@ class AppSettings {
         useCompactSearchCards: useCompactSearchCards ?? this.useCompactSearchCards,
         expandHomeVideoCards: expandHomeVideoCards ?? this.expandHomeVideoCards,
         useNavigationDrawer: useNavigationDrawer ?? this.useNavigationDrawer,
-        useLiquidGlassBottomBar: useLiquidGlassBottomBar ?? this.useLiquidGlassBottomBar,
+        useFloatingNavigationBar: useFloatingNavigationBar ?? this.useFloatingNavigationBar,
         useHomeCategoryTabs: useHomeCategoryTabs ?? this.useHomeCategoryTabs,
         showHomeFeatured: showHomeFeatured ?? this.showHomeFeatured,
         homeSectionOrder: homeSectionOrder ?? this.homeSectionOrder,

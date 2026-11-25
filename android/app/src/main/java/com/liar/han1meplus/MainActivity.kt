@@ -47,11 +47,11 @@ class MainActivity : FlutterActivity() {
         const val mediaCdnRegionKey = "media_cdn_region"
         const val mediaCdnCustomIpKey = "media_cdn_custom_ip"
 
-        fun saveCookies(context: Context, cookies: String, url: String) {
+        fun saveCookies(context: Context, cookies: String, url: String, broadcast: Boolean = true) {
             val preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
             val host = requireNotNull(android.net.Uri.parse(url).host)
             val editor = preferences.edit()
-            for (target in cookieHosts(host)) {
+            for (target in cookieHosts(host, broadcast)) {
                 val key = "$cookieKey:$target"
                 editor.putString(key, mergeCookies(preferences.getString(key, "").orEmpty(), cookies))
             }
@@ -68,7 +68,7 @@ class MainActivity : FlutterActivity() {
             .entries
             .joinToString("; ") { "${it.key}=${it.value}" }
 
-        private fun cookieHosts(host: String) = if (host in hanimeHosts) hanimeHosts else setOf(host)
+        private fun cookieHosts(host: String, broadcast: Boolean) = if (broadcast && host in hanimeHosts) hanimeHosts else setOf(host)
 
         private val hanimeHosts = setOf("hanime1.me", "hanime1.com", "hanimeone.me", "javchu.com", "hanime169.net", "www.hanime169.net")
     }
@@ -102,7 +102,7 @@ class MainActivity : FlutterActivity() {
                 .associateBy { it.name }
                 .values
                 .toList()
-            saveCookies(applicationContext, cookies.joinToString("; ") { "${it.name}=${it.value}" }, url.toString())
+            saveCookies(applicationContext, cookies.joinToString("; ") { "${it.name}=${it.value}" }, url.toString(), broadcast = false)
         }
     }
 
@@ -125,7 +125,7 @@ class MainActivity : FlutterActivity() {
                     val url = call.argument<String>("url")
                     if (url == null) result.error("invalid_url", "Missing URL", null)
                     else {
-                        saveCookies(this, call.argument<String>("cookies").orEmpty(), url)
+                        saveCookies(this, call.argument<String>("cookies").orEmpty(), url, call.argument<Boolean>("broadcast") ?: true)
                         result.success(null)
                     }
                 }
@@ -135,7 +135,7 @@ class MainActivity : FlutterActivity() {
                     else {
                         val host = requireNotNull(android.net.Uri.parse(url).host)
                         val editor = getSharedPreferences(preferencesName, Context.MODE_PRIVATE).edit()
-                        for (target in cookieHosts(host)) {
+                        for (target in cookieHosts(host, true)) {
                             responseCookies.remove(target)
                             editor.remove("$cookieKey:$target")
                         }

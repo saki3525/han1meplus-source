@@ -22,6 +22,33 @@ import 'home_section_layout.dart';
 
 const _maxContentWidth = 1440.0;
 
+typedef _HomePreferences = ({
+  List<String> sectionOrder,
+  List<String> hiddenSections,
+  bool showFeatured,
+  bool categoryTabs,
+  bool exemptSubscribed,
+  List<String> titleKeywords,
+  List<String> authorKeywords,
+  int minimumDuration,
+  int minimumViews,
+});
+
+_HomePreferences _homePreferencesOf(AsyncValue<AppSettings> value) {
+  final settings = value.valueOrNull;
+  return (
+    sectionOrder: settings?.homeSectionOrder ?? const <String>[],
+    hiddenSections: settings?.hiddenHomeSections ?? const <String>[],
+    showFeatured: settings?.showHomeFeatured ?? true,
+    categoryTabs: settings?.useHomeCategoryTabs ?? false,
+    exemptSubscribed: settings?.exemptSubscribedAuthors ?? true,
+    titleKeywords: settings?.blockedVideoTitleKeywords ?? const <String>[],
+    authorKeywords: settings?.blockedAuthors ?? const <String>[],
+    minimumDuration: settings?.minimumVideoDurationSeconds ?? 0,
+    minimumViews: settings?.minimumVideoViews ?? 0,
+  );
+}
+
 class ExplorePage extends ConsumerWidget {
   const ExplorePage({super.key});
 
@@ -67,25 +94,25 @@ class _HomeFeedBody extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final settings = ref.watch(settingsProvider).valueOrNull;
+    final home = ref.watch(settingsProvider.select(_homePreferencesOf));
     final catalog = ref.watch(searchOptionCatalogProvider).valueOrNull;
     final locale = searchOptionLocaleKey(Localizations.localeOf(context));
     final subscribed = ref.watch(libraryProvider).valueOrNull?.artists.map((artist) => artist.name.toLowerCase()).toSet() ?? <String>{};
     final localized = feed.sections
         .map((section) => HomeSection(
               title: _localizedSectionTitle(section, catalog, locale),
-              videos: section.videos.where((video) => _visible(video, settings, subscribed)).toList(),
+              videos: section.videos.where((video) => _visible(video, home, subscribed)).toList(),
               moreUrl: section.moreUrl,
               isFeatured: section.isFeatured,
             ))
         .toList(growable: false);
-    final sections = applyHomeSectionLayout(localized, settings?.homeSectionOrder ?? const [], settings?.hiddenHomeSections ?? const [])
+    final sections = applyHomeSectionLayout(localized, home.sectionOrder, home.hiddenSections)
         .where((section) => section.videos.isNotEmpty)
         .toList();
     Future<void> refresh() => ref.read(homeSectionsProvider.notifier).refresh();
-    final showFeatured = settings?.showHomeFeatured ?? true;
+    final showFeatured = home.showFeatured;
     if (sections.isEmpty && (!showFeatured || feed.featured == null)) return _EmptyHomeView(onRetry: () => ref.read(homeSectionsProvider.notifier).refresh());
-    if (settings?.useHomeCategoryTabs != true || sections.isEmpty) return M3EPullToRefreshIndicator(onRefresh: refresh, child: _HomeScroll(featured: showFeatured ? feed.featured : null, sections: sections));
+    if (!home.categoryTabs || sections.isEmpty) return M3EPullToRefreshIndicator(onRefresh: refresh, child: _HomeScroll(featured: showFeatured ? feed.featured : null, sections: sections));
     return DefaultTabController(length: sections.length, child: Column(children: [
       TabBar(isScrollable: true, tabAlignment: TabAlignment.start, tabs: sections.map((section) => Tab(text: section.title)).toList()),
       Expanded(child: TabBarView(children: sections.asMap().entries.map((entry) {
@@ -96,13 +123,12 @@ class _HomeFeedBody extends ConsumerWidget {
     ]));
   }
 
-  bool _visible(VideoCard video, AppSettings? settings, Set<String> subscribed) {
-    if (settings == null) return true;
+  bool _visible(VideoCard video, _HomePreferences prefs, Set<String> subscribed) {
     final subscribedAuthor = video.artist != null && subscribed.contains(video.artist!.toLowerCase());
-    if (!(settings.exemptSubscribedAuthors && subscribedAuthor)) {
-      if (settings.blockedVideoTitleKeywords.any((keyword) => video.title.toLowerCase().contains(keyword.toLowerCase()))) return false;
-      if (settings.blockedAuthors.any((author) => (video.artist ?? '').toLowerCase().contains(author.toLowerCase()))) return false;
-      if (_duration(video.duration) < settings.minimumVideoDurationSeconds || !meetsMinimumVideoViews(video.views, settings.minimumVideoViews)) return false;
+    if (!(prefs.exemptSubscribed && subscribedAuthor)) {
+      if (prefs.titleKeywords.any((keyword) => video.title.toLowerCase().contains(keyword.toLowerCase()))) return false;
+      if (prefs.authorKeywords.any((author) => (video.artist ?? '').toLowerCase().contains(author.toLowerCase()))) return false;
+      if (_duration(video.duration) < prefs.minimumDuration || !meetsMinimumVideoViews(video.views, prefs.minimumViews)) return false;
     }
     return true;
   }
@@ -185,10 +211,17 @@ class _HomeSectionState extends ConsumerState<_HomeSection> {
 
   @override
   Widget build(BuildContext context) {
-    final settings = ref.watch(settingsProvider).valueOrNull;
-    final horizontal = settings?.useHorizontalSearchCards ?? true;
-    final expanded = widget.forceExpanded || (settings?.expandHomeVideoCards ?? false);
-    final cardsPerRow = settings?.searchCardsPerRow ?? 2;
+    final layout = ref.watch(settingsProvider.select((value) {
+      final settings = value.valueOrNull;
+      return (
+        horizontal: settings?.useHorizontalSearchCards ?? true,
+        expanded: settings?.expandHomeVideoCards ?? false,
+        cardsPerRow: settings?.searchCardsPerRow ?? 2,
+      );
+    }));
+    final horizontal = layout.horizontal;
+    final expanded = widget.forceExpanded || layout.expanded;
+    final cardsPerRow = layout.cardsPerRow;
     final prefetchKey = '${widget.section.videos.length}-$expanded-$horizontal-$cardsPerRow';
     if (prefetchKey != _prefetchKey) {
       _prefetchKey = prefetchKey;

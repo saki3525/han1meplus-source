@@ -263,9 +263,9 @@
   "watchLater": "Watch Later",
   "favoriteVideos": "Favorite Videos",
   "subscriptions": "Subscriptions",
-  "noWatchLater": "No watch-later videos",
-  "noFavoriteVideos": "No favorite videos",
-  "noSubscriptionVideos": "No subscription videos",
+  "noWatchLater": "No videos you want to watch yet",
+  "noFavoriteVideos": "No saved videos yet",
+  "noSubscriptionVideos": "No subscription videos yet",
   "selectedItems": "{count} selected",
   "@selectedItems": {
     "placeholders": {
@@ -465,7 +465,7 @@
   "preview": "Preview",
   "watchHistory": "Watch History",
   "playlists": "Playlists",
-  "noPlaylists": "No playlists",
+  "noPlaylists": "No playlists yet",
   "deletePlaylist": "Delete Playlist",
   "deletePlaylistConfirmation": "Delete \"{title}\"?",
   "@deletePlaylistConfirmation": {
@@ -660,8 +660,8 @@
   "newCategory": "New Category",
   "navigationDrawer": "Use Navigation Drawer",
   "navigationDrawerDescription": "Use a drawer instead of the bottom navigation bar",
-  "liquidGlassBottomBar": "Liquid Glass Bottom Bar",
-  "liquidGlassBottomBarDescription": "Use a floating Liquid Glass bottom navigation bar",
+  "floatingNavigationBar": "Floating Navigation Bar",
+  "floatingNavigationBarDescription": "Use a floating navigation bar for the bottom navigation",
   "home": "Home",
   "quality": "Quality",
   "anime4k": "Anime4K",
@@ -916,5 +916,27 @@
   "ech": "ECH",
   "echSwitchDescription": "Send site requests through the native ECH channel",
   "echDisabled": "ECH is turned off; requests use the standard channel",
-  "finishedVerification": "Verification Finished"
+  "finishedVerification": "Verification Finished",
+  "cloudflareVerificationIncomplete": "Verification is not complete yet. Please finish the challenge first.",
+  "historyRecords": "History",
+  "watchFootprint": "Watch Footprint",
+  "watchedVideos": "Videos Watched",
+  "watchSessions": "Watch Sessions",
+  "viewWatchHistory": "View watch history",
+  "manageOfflineContent": "Manage offline content",
+  "offlineDownloads": "Offline Downloads",
+  "searchLibrary": "Search library",
+  "clearSearch": "Clear search",
+  "libraryItemsCount": "{count} items",
+  "@libraryItemsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "done": "Done",
+  "searchWatchHistory": "Search watch history",
+  "clearAllHistory": "Clear all watch history",
+  "clearAllHistoryConfirmation": "This will delete every watch record. This action cannot be undone."
 }

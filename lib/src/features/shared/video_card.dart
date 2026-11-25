@@ -226,9 +226,12 @@ class VideoCardGrid extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final settings = ref.watch(settingsProvider).valueOrNull;
-    final horizontal = settings?.useHorizontalSearchCards ?? true;
-    final cardsPerRow = settings?.searchCardsPerRow ?? 2;
+    final layout = ref.watch(settingsProvider.select((value) {
+      final settings = value.valueOrNull;
+      return (horizontal: settings?.useHorizontalSearchCards ?? true, cardsPerRow: settings?.searchCardsPerRow ?? 2);
+    }));
+    final horizontal = layout.horizontal;
+    final cardsPerRow = layout.cardsPerRow;
     return LayoutBuilder(
       builder: (context, constraints) {
         const horizontalPadding = 24.0;

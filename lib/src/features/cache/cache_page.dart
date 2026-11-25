@@ -10,6 +10,8 @@ import '../../core/app_shell.dart';
 import '../../data/local/download_repository.dart';
 import '../../domain/models/download.dart';
 import '../../domain/models/video.dart';
+import '../library/library_empty_state.dart';
+import '../library/library_tabs.dart';
 import '../settings/settings_controller.dart';
 import '../shared/video_card.dart';
 import 'cache_controller.dart';
@@ -48,9 +50,11 @@ class _CachePageState extends ConsumerState<CachePage> with TickerProviderStateM
           appBar: AppBar(
             leading: view.selecting
                 ? IconButton(tooltip: l10n.cancel, onPressed: ref.read(cacheViewProvider.notifier).clearSelection, icon: const Icon(Icons.close))
-                : ref.watch(settingsProvider).valueOrNull?.useNavigationDrawer ?? false
-                    ? (permanentNavigationDrawer(context) ? null : IconButton(onPressed: openAppDrawer, icon: const Icon(Icons.menu)))
-                    : null,
+                : Navigator.of(context).canPop()
+                    ? const BackButton()
+                    : ref.watch(settingsProvider.select((value) => value.valueOrNull?.useNavigationDrawer ?? false))
+                        ? (permanentNavigationDrawer(context) ? null : IconButton(onPressed: openAppDrawer, icon: const Icon(Icons.menu)))
+                        : null,
             title: Text(view.selecting ? l10n.selectedItems(view.selected.length) : l10n.cache),
             actions: view.selecting
                 ? _selectionActions(context, ref, state, tasks)
@@ -64,11 +68,12 @@ class _CachePageState extends ConsumerState<CachePage> with TickerProviderStateM
                       itemBuilder: (context) => [PopupMenuItem(value: _CacheMenuAction.groupSettings, child: ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.tune), title: Text(l10n.bookshelfSettings)))],
                     ),
                   ],
-            bottom: TabBar(
-              controller: tabController,
-              isScrollable: true,
-              tabAlignment: TabAlignment.start,
-              tabs: [for (final group in state.groups) Tab(text: _groupName(group, l10n))],
+            bottom: PreferredSize(
+              preferredSize: const Size.fromHeight(48),
+              child: LibraryTabStrip(
+                controller: tabController!,
+                tabs: [for (final group in state.groups) LibraryTabEntry(key: group.id, label: _groupName(group, l10n))],
+              ),
             ),
           ),
           body: TabBarView(
@@ -171,7 +176,7 @@ class _CacheBody extends ConsumerWidget {
     final l10n = AppLocalizations.of(context)!;
     final view = ref.watch(cacheViewProvider);
     final pinned = tasks.where((task) => task.pinned).toList();
-    if (tasks.isEmpty) return Center(child: Text(l10n.noCache));
+    if (tasks.isEmpty) return LibraryEmptyState(icon: Icons.download_rounded, title: l10n.noCache);
     return CustomScrollView(
       slivers: [
         if (pinned.isNotEmpty) ...[
@@ -210,9 +215,12 @@ class _TaskGrid extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final settings = ref.watch(settingsProvider).valueOrNull;
-    final horizontal = settings?.useHorizontalSearchCards ?? true;
-    final preferredCards = settings?.searchCardsPerRow ?? 2;
+    final layout = ref.watch(settingsProvider.select((value) {
+      final settings = value.valueOrNull;
+      return (horizontal: settings?.useHorizontalSearchCards ?? true, cardsPerRow: settings?.searchCardsPerRow ?? 2);
+    }));
+    final horizontal = layout.horizontal;
+    final preferredCards = layout.cardsPerRow;
     return SliverLayoutBuilder(
       builder: (context, constraints) {
         final metrics = videoCardMetrics(context: context, viewportWidth: constraints.crossAxisExtent, horizontal: horizontal, cardsPerRow: preferredCards, expanded: true);

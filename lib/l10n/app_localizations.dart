@@ -2426,17 +2426,17 @@ abstract class AppLocalizations {
   /// **'Use a drawer instead of the bottom navigation bar'**
   String get navigationDrawerDescription;
 
-  /// No description provided for @liquidGlassBottomBar.
+  /// No description provided for @floatingNavigationBar.
   ///
   /// In en, this message translates to:
-  /// **'Liquid Glass Bottom Bar'**
-  String get liquidGlassBottomBar;
+  /// **'Floating Navigation Bar'**
+  String get floatingNavigationBar;
 
-  /// No description provided for @liquidGlassBottomBarDescription.
+  /// No description provided for @floatingNavigationBarDescription.
   ///
   /// In en, this message translates to:
-  /// **'Use a floating Liquid Glass bottom navigation bar'**
-  String get liquidGlassBottomBarDescription;
+  /// **'Use a floating navigation bar for the bottom navigation'**
+  String get floatingNavigationBarDescription;
 
   /// No description provided for @home.
   ///
@@ -3406,6 +3406,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Verification Finished'**
   String get finishedVerification;
+
+  /// No description provided for @cloudflareVerificationIncomplete.
+  ///
+  /// In en, this message translates to:
+  /// **'Verification is not complete yet. Please finish the challenge first.'**
+  String get cloudflareVerificationIncomplete;
 
 }
 

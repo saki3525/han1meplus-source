@@ -16,11 +16,19 @@ class AccountWebPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final baseUrl = ref.watch(settingsProvider).valueOrNull?.resolvedBaseUrl ?? 'https://hanime1.me';
-    final webViewEnvironment = ref.watch(webViewEnvironmentProvider).valueOrNull;
+    final environment = ref.watch(webViewEnvironmentProvider);
     return Scaffold(
       appBar: AppBar(title: Text(title)),
-      body: InAppWebView(
-        webViewEnvironment: webViewEnvironment,
+      body: environment.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (_, __) => _webView(null, baseUrl),
+        data: (environment) => _webView(environment, baseUrl),
+      ),
+    );
+  }
+
+  Widget _webView(WebViewEnvironment? environment, String baseUrl) => InAppWebView(
+        webViewEnvironment: environment,
         initialUrlRequest: URLRequest(url: WebUri(siteEndpointUrl(baseUrl, path))),
         initialSettings: InAppWebViewSettings(
           javaScriptEnabled: true,
@@ -28,7 +36,5 @@ class AccountWebPage extends ConsumerWidget {
           thirdPartyCookiesEnabled: true,
           userAgent: Han1meApi.userAgent,
         ),
-      ),
-    );
-  }
+      );
 }

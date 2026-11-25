@@ -71,6 +71,12 @@ class WebDavSyncService {
     }
     final progressItems = progress.values.toList()..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
     final historyItems = history.values.toList()..sort((left, right) => left.createdAt.compareTo(right.createdAt));
-    return WatchState(continueItems: progressItems.take(6).toList(), histories: historyItems);
+    final watchedCodes = {...local.watchedVideoCodes, ...remote.watchedVideoCodes}
+      ..addAll(historyItems.map((item) => item.videoCode).where((code) => code.isNotEmpty));
+    return WatchState(
+      continueItems: progressItems.take(6).toList(),
+      histories: historyItems,
+      watchedVideoCodes: watchedCodes,
+    );
   }
 }

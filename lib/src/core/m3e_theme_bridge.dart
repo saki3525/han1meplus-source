@@ -6,9 +6,17 @@ class M3EThemeBridge extends StatelessWidget {
 
   final Widget child;
 
+  static ThemeData? _cachedSource;
+  static modern.ThemeData? _cachedModern;
+
   @override
   Widget build(BuildContext context) {
-    return modern.Theme(data: _toModern(Theme.of(context)), child: child);
+    final source = Theme.of(context);
+    if (!identical(_cachedSource, source)) {
+      _cachedSource = source;
+      _cachedModern = _toModern(source);
+    }
+    return modern.Theme(data: _cachedModern!, child: child);
   }
 
   modern.ThemeData _toModern(ThemeData theme) {
@@ -17,6 +25,7 @@ class M3EThemeBridge extends StatelessWidget {
     return modern.ThemeData(
       useMaterial3: true,
       platform: theme.platform,
+      iconButtonTheme: const modern.IconButtonThemeData(variant: modern.StyleVariant.material3Expressive),
       visualDensity: modern.VisualDensity(
         horizontal: theme.visualDensity.horizontal,
         vertical: theme.visualDensity.vertical,
@@ -41,6 +50,7 @@ class M3EThemeBridge extends StatelessWidget {
       colorScheme: modern.ColorScheme.fromSeed(
         seedColor: source.primary,
         brightness: source.brightness,
+        dynamicSchemeVariant: modern.DynamicSchemeVariant.tonalSpot,
         primary: source.primary,
         onPrimary: source.onPrimary,
         primaryContainer: source.primaryContainer,

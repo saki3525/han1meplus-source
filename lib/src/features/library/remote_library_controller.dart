@@ -12,10 +12,12 @@ final remoteLibraryProvider = FutureProvider.autoDispose<RemoteLibrary>((ref) as
   final link = ref.keepAlive();
   final timer = Timer(const Duration(minutes: 5), link.close);
   ref.onDispose(timer.cancel);
-  final account = await ref.watch(accountProvider.future);
-  if (account?.id == null) throw StateError('Not logged in');
-  final settings = await ref.watch(settingsProvider.future);
-  final library = await ref.watch(han1meRepositoryProvider).library(settings.resolvedBaseUrl, account!.id!);
+  final cachedAccountId = ref.watch(accountProvider.select((value) => value.valueOrNull?.id));
+  final accountId = cachedAccountId ?? (await ref.read(accountProvider.future))?.id;
+  if (accountId == null) throw StateError('Not logged in');
+  final cachedBaseUrl = ref.watch(settingsProvider.select((value) => value.valueOrNull?.resolvedBaseUrl));
+  final baseUrl = cachedBaseUrl ?? (await ref.read(settingsProvider.future)).resolvedBaseUrl;
+  final library = await ref.watch(han1meRepositoryProvider).library(baseUrl, accountId);
   await ref.read(libraryProvider.notifier).cacheRemote(library);
   return library;
 });

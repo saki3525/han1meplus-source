@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -12,7 +11,7 @@ import 'windows_http_overrides.dart';
 
 final webViewEnvironmentProvider = FutureProvider<WebViewEnvironment?>((ref) async {
   if (!Platform.isWindows) {
-    unawaited(_detectUserAgent());
+    await _detectUserAgent().timeout(const Duration(seconds: 2), onTimeout: () {});
     return null;
   }
   final supportDirectory = await getApplicationSupportDirectory();
@@ -24,7 +23,7 @@ final webViewEnvironmentProvider = FutureProvider<WebViewEnvironment?>((ref) asy
     ),
   );
   WebViewCookieBridge.environment = environment;
-  unawaited(_detectUserAgent());
+  await _detectUserAgent().timeout(const Duration(seconds: 2), onTimeout: () {});
   ref.onDispose(() {
     WebViewCookieBridge.environment = null;
     environment.dispose();

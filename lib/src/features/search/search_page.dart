@@ -7,14 +7,13 @@ import 'package:go_router/go_router.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../data/assets/search_option_catalog.dart';
-import '../../data/remote/han1me_api.dart' show SearchResult;
 import '../../domain/models/search_query.dart';
 import '../../domain/models/video.dart';
 import '../settings/settings_controller.dart';
 import '../shared/compact_video_card.dart';
+import '../shared/search_loading_gate.dart';
 import '../shared/video_card.dart';
 import 'search_controller.dart';
-import 'search_history_sheet.dart';
 
 const _compactSearchGenres = {'裏番', '泡麵番'};
 
@@ -51,6 +50,10 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     super.dispose();
   }
 
+  void _writeText(String value) {
+    _textController.value = TextEditingValue(text: value, selection: TextSelection.collapsed(offset: value.length));
+  }
+
   void _openResult(VideoCard video) {
     if (video.id.isNotEmpty) {
       context.push('/video/${video.id}');
@@ -60,104 +63,72 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     if (query.isEmpty) return;
     final notifier = ref.read(searchQueryProvider(widget.request).notifier);
     notifier.artist(query);
-    _textController.value = _textController.value.copyWith(text: query, selection: TextSelection.collapsed(offset: query.length));
+    _writeText(query);
   }
 
-  Future<void> _showHistory(BuildContext context, WidgetRef ref, SearchQueryNotifier notifier) async {
-    final selected = await showSearchHistorySheet(context, ref);
-    if (selected == null || !mounted) return;
-    notifier.replace(selected);
-    _textController.value = _textController.value.copyWith(text: selected.text, selection: TextSelection.collapsed(offset: selected.text.length));
-    unawaited(ref.read(searchHistoryProvider.notifier).record(selected));
+  void _submit(String value) {
+    FocusScope.of(context).unfocus();
+    final notifier = ref.read(searchQueryProvider(widget.request).notifier);
+    notifier.text(value.trim());
+    final next = ref.read(searchQueryProvider(widget.request));
+    unawaited(ref.read(searchHistoryProvider.notifier).record(next));
+  }
+
+  Future<void> _showFilters() async {
+    FocusScope.of(context).unfocus();
+    final options = ref.read(searchOptionCatalogProvider).valueOrNull;
+    if (options == null) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => _FilterSheet(request: widget.request, options: options),
+    );
+  }
+
+  void _applyHistory(SearchQuery query) {
+    ref.read(searchQueryProvider(widget.request).notifier).replace(query);
+    _writeText(query.text);
+    unawaited(ref.read(searchHistoryProvider.notifier).record(query));
   }
 
   @override
   Widget build(BuildContext context) {
     final request = widget.request;
-    final result = ref.watch(searchResultsProvider(request));
     final query = ref.watch(searchQueryProvider(request));
-    final notifier = ref.read(searchQueryProvider(request).notifier);
     final options = ref.watch(searchOptionCatalogProvider).valueOrNull;
     final l10n = AppLocalizations.of(context)!;
-    final useCompactCards = (ref.watch(settingsProvider).valueOrNull?.useCompactSearchCards ?? true) &&
-        _compactSearchGenres.contains(options?.genres.canonical(query.genre) ?? query.genre);
-    ref.listen<SearchQuery>(searchQueryProvider(request), (previous, next) {
-      if (previous != next && next.hasSearchCriteria) unawaited(ref.read(searchHistoryProvider.notifier).record(next));
-      if (_textController.text != next.text) _textController.value = _textController.value.copyWith(text: next.text, selection: TextSelection.collapsed(offset: next.text.length));
-    });
+    final hasQuery = query.hasSearchCriteria;
     return Scaffold(
       body: SafeArea(
         bottom: false,
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(8, 8, 16, 0),
-              child: Row(children: [
-                IconButton(onPressed: () => context.pop(), icon: const Icon(Icons.arrow_back)),
-                Expanded(
-                  child: SearchBar(
-                    controller: _textController,
-                    hintText: l10n.searchHint,
-                    trailing: [
-                      ValueListenableBuilder<TextEditingValue>(
-                        valueListenable: _textController,
-                        builder: (context, value, _) => value.text.isEmpty
-                            ? const SizedBox.shrink()
-                            : IconButton(
-                                tooltip: l10n.clear,
-                                icon: const Icon(Icons.close),
-                                onPressed: () {
-                                  _textController.clear();
-                                  notifier.text('');
-                                },
-                              ),
-                      ),
-                      IconButton(
-                        tooltip: l10n.searchHistory,
-                        icon: const Icon(Icons.history),
-                        onPressed: () => _showHistory(context, ref, notifier),
-                      ),
-                    ],
-                    onSubmitted: (value) {
-                      notifier.text(value.trim());
-                      final next = ref.read(searchQueryProvider(request));
-                      unawaited(ref.read(searchHistoryProvider.notifier).record(next));
-                    },
+              padding: const EdgeInsets.fromLTRB(8, 8, 12, 4),
+              child: Row(
+                children: [
+                  IconButton(onPressed: () => context.pop(), icon: const Icon(Icons.arrow_back)),
+                  Expanded(
+                    child: _SearchField(
+                      controller: _textController,
+                      hint: l10n.searchHint,
+                      onSubmitted: _submit,
+                      onClear: () {
+                        _textController.clear();
+                        ref.read(searchQueryProvider(request).notifier).reset();
+                      },
+                      onFilters: options == null ? null : _showFilters,
+                    ),
                   ),
-                ),
-              ]),
+                ],
+              ),
             ),
-            _Filters(options: options, query: query, notifier: notifier),
-          Expanded(
-            child: result.when(
-              loading: () => const Center(child: M3EContainedLoadingIndicator()),
-              error: (error, stackTrace) => _ErrorView(error: error, onRetry: () => ref.invalidate(searchResultsProvider(request))),
-              data: (page) => page.items.isEmpty
-                  ? _EmptyState(message: l10n.noSearchResults)
-                  : useCompactCards
-                      ? CompactVideoCardGrid(
-                          videos: page.items,
-                          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-                          itemBuilder: (context, index, video) => CompactVideoCard(
-                            video: video,
-                            onTap: () => _openResult(video),
-                          ),
-                        )
-                      : VideoCardGrid(
-                          videos: page.items,
-                          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-                          itemBuilder: (context, index, video, horizontal) => VideoCardTile(
-                            video: video,
-                            horizontal: horizontal,
-                            onTap: () => _openResult(video),
-                          ),
-                        ),
+            Expanded(
+              child: hasQuery
+                  ? _Results(request: request, query: query, options: options, onOpen: _openResult)
+                  : _Discovery(request: request, onHistory: _applyHistory, onFilters: options == null ? null : _showFilters),
             ),
-          ),
-          _PaginationBar(
-            result: result.valueOrNull,
-            onChanged: notifier.page,
-          ),
           ],
         ),
       ),
@@ -165,71 +136,298 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   }
 }
 
-class _Filters extends StatelessWidget {
-  const _Filters({required this.options, required this.query, required this.notifier});
+class _SearchField extends StatelessWidget {
+  const _SearchField({required this.controller, required this.hint, required this.onSubmitted, required this.onClear, this.onFilters});
 
-  final SearchOptionCatalog? options;
-  final SearchQuery query;
-  final SearchQueryNotifier notifier;
+  final TextEditingController controller;
+  final String hint;
+  final ValueChanged<String> onSubmitted;
+  final VoidCallback onClear;
+  final VoidCallback? onFilters;
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: controller,
+      builder: (context, value, _) => SearchBar(
+        controller: controller,
+        hintText: hint,
+        textInputAction: TextInputAction.search,
+        constraints: const BoxConstraints(minHeight: 56),
+        elevation: const WidgetStatePropertyAll(0),
+        backgroundColor: WidgetStatePropertyAll(colors.surfaceContainerHigh),
+        padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 8)),
+        leading: IconButton(tooltip: AppLocalizations.of(context)!.searchHint, onPressed: () => onSubmitted(controller.text), icon: const Icon(Icons.search_rounded)),
+        trailing: [
+          if (value.text.isNotEmpty)
+            IconButton(tooltip: AppLocalizations.of(context)!.clearSearch, onPressed: onClear, icon: const Icon(Icons.close_rounded)),
+          IconButton(tooltip: AppLocalizations.of(context)!.filters, onPressed: onFilters, icon: const Icon(Icons.tune_rounded)),
+        ],
+        onSubmitted: onSubmitted,
+      ),
+    );
+  }
+}
+
+class _Results extends ConsumerWidget {
+  const _Results({required this.request, required this.query, required this.options, required this.onOpen});
+
+  final SearchRouteRequest request;
+  final SearchQuery query;
+  final SearchOptionCatalog? options;
+  final ValueChanged<VideoCard> onOpen;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
-    if (options == null) return const SizedBox(height: 56);
+    final result = ref.watch(searchFeedProvider(request));
+    final useCompactCards = ref.watch(settingsProvider.select((value) => value.valueOrNull?.useCompactSearchCards ?? true)) &&
+        _compactSearchGenres.contains(options?.genres.canonical(query.genre) ?? query.genre);
+    return SearchLoadingGate(
+      loadingKey: query.copyWith(page: 1).toUri().toString(),
+      child: result.when(
+        loading: () => const Center(child: M3EContainedLoadingIndicator()),
+        error: (error, stackTrace) => _ErrorView(error: error, onRetry: () => ref.invalidate(searchFeedProvider(request))),
+        data: (feed) {
+          if (feed.items.isEmpty) return _EmptyState(message: l10n.noSearchResults);
+          return NotificationListener<ScrollNotification>(
+            onNotification: (notification) {
+              if (notification.metrics.extentAfter < 480) {
+                unawaited(ref.read(searchFeedProvider(request).notifier).loadMore());
+              }
+              return false;
+            },
+            child: Column(
+              children: [
+                Expanded(
+                  child: useCompactCards
+                      ? CompactVideoCardGrid(
+                          videos: feed.items,
+                          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                          itemBuilder: (context, index, video) => CompactVideoCard(video: video, onTap: () => onOpen(video)),
+                        )
+                      : VideoCardGrid(
+                          videos: feed.items,
+                          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                          itemBuilder: (context, index, video, horizontal) => VideoCardTile(video: video, horizontal: horizontal, onTap: () => onOpen(video)),
+                        ),
+                ),
+                if (feed.loadingMore)
+                  Padding(
+                    padding: EdgeInsets.only(bottom: 12 + MediaQuery.paddingOf(context).bottom),
+                    child: const M3EContainedLoadingIndicator(),
+                  ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _Discovery extends ConsumerWidget {
+  const _Discovery({required this.request, required this.onHistory, this.onFilters});
+
+  final SearchRouteRequest request;
+  final ValueChanged<SearchQuery> onHistory;
+  final VoidCallback? onFilters;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
+    final histories = ref.watch(searchHistoryProvider).valueOrNull ?? const <SearchQuery>[];
+    return ListView(
+      padding: EdgeInsets.fromLTRB(16, 12, 16, 24 + MediaQuery.paddingOf(context).bottom),
+      children: [
+        Material(
+          type: MaterialType.transparency,
+          child: ListTile(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            leading: const Icon(Icons.tune_rounded),
+            title: Text(l10n.filters),
+            subtitle: Text(l10n.searchHint),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: onFilters,
+          ),
+        ),
+        if (histories.isNotEmpty) ...[
+          const SizedBox(height: 24),
+          Padding(
+            padding: const EdgeInsets.only(left: 4, right: 4),
+            child: Row(
+              children: [
+                Expanded(child: Text(l10n.searchHistory, style: theme.textTheme.titleSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant))),
+                TextButton(
+                  onPressed: () => ref.read(searchHistoryProvider.notifier).clear(),
+                  child: Text(l10n.clear),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+          for (final item in histories) ...[
+            _HistoryTile(
+              label: _historyLabel(l10n, item),
+              filters: _historyFilters(l10n, item),
+              onTap: () => onHistory(item),
+              onDelete: () => ref.read(searchHistoryProvider.notifier).remove(item),
+            ),
+            const SizedBox(height: 6),
+          ],
+        ],
+      ],
+    );
+  }
+
+  String _historyLabel(AppLocalizations l10n, SearchQuery query) {
+    if (query.text.trim().isNotEmpty) return query.text.trim();
+    if (query.tags.isNotEmpty) return l10n.searchHistoryTags(query.tags.length);
+    if (query.genre.isNotEmpty) return query.genre;
+    return l10n.searchHistoryAll;
+  }
+
+  String _historyFilters(AppLocalizations l10n, SearchQuery query) {
+    final parts = <String>[
+      if (query.genre.isNotEmpty) query.genre,
+      if (query.sort.isNotEmpty) query.sort,
+      if (query.date.isNotEmpty) query.date,
+      if (query.duration.isNotEmpty) query.duration,
+      if (query.tags.isNotEmpty) l10n.searchHistoryTags(query.tags.length),
+      if (query.type.isNotEmpty) l10n.searchAuthors,
+    ];
+    return parts.join(' · ');
+  }
+}
+
+class _HistoryTile extends StatelessWidget {
+  const _HistoryTile({required this.label, required this.filters, required this.onTap, required this.onDelete});
+
+  final String label;
+  final String filters;
+  final VoidCallback onTap;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return Material(
+      color: colors.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(18),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 6, 10),
+          child: Row(
+            children: [
+              Icon(Icons.history_rounded, size: 20, color: colors.onSurfaceVariant),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodyLarge),
+                    if (filters.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(filters, maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant)),
+                    ],
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: AppLocalizations.of(context)!.deleteSearchHistory,
+                onPressed: onDelete,
+                icon: const Icon(Icons.close_rounded, size: 18),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FilterSheet extends ConsumerWidget {
+  const _FilterSheet({required this.request, required this.options});
+
+  final SearchRouteRequest request;
+  final SearchOptionCatalog options;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final query = ref.watch(searchQueryProvider(request));
+    final notifier = ref.read(searchQueryProvider(request).notifier);
     final locale = searchOptionLocaleKey(Localizations.localeOf(context));
-    final genres = options!.genres;
-    final sorts = options!.sorts;
-    final durations = options!.durations;
-    return SizedBox(
-      height: 56,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        children: [
-          _MenuFilterButton(
-            label: l10n.category(query.genre.isEmpty ? l10n.all : genres.localize(query.genre, locale) ?? query.genre),
-            icon: Icons.category_outlined,
-            values: genres.options.map((item) => item.searchKey ?? '').toList(),
-            onSelected: notifier.genre,
-            formatter: (value) => value.isEmpty ? l10n.all : genres.localize(value, locale) ?? value,
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(16, 0, 16, 16 + MediaQuery.viewInsetsOf(context).bottom),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(l10n.filters, style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _MenuFilterButton(
+                    label: l10n.category(query.genre.isEmpty ? l10n.all : options.genres.localize(query.genre, locale) ?? query.genre),
+                    icon: Icons.category_outlined,
+                    values: options.genres.options.map((item) => item.searchKey ?? '').toList(),
+                    onSelected: notifier.genre,
+                    formatter: (value) => value.isEmpty ? l10n.all : options.genres.localize(value, locale) ?? value,
+                  ),
+                  _MenuFilterButton(
+                    label: l10n.sort(query.sort.isEmpty ? l10n.defaultValue : options.sorts.localize(query.sort, locale) ?? query.sort),
+                    icon: Icons.sort,
+                    values: options.sorts.options.map((item) => item.searchKey ?? '').toList(),
+                    onSelected: notifier.sort,
+                    formatter: (value) => value.isEmpty ? l10n.defaultValue : options.sorts.localize(value, locale) ?? value,
+                  ),
+                  _ActionFilterButton(
+                    label: l10n.releaseDate(query.date.isEmpty ? l10n.all : options.releaseDates.localize(query.date, locale) ?? query.date),
+                    icon: Icons.calendar_month_outlined,
+                    onPressed: () async {
+                      final date = await _showDateFilter(context, query.date, options.releaseDates.options, locale);
+                      if (date != null) notifier.date(date);
+                    },
+                  ),
+                  _ActionFilterButton(
+                    label: query.tags.isEmpty ? l10n.tags : l10n.tagsSelected(query.tags.length),
+                    icon: Icons.sell_outlined,
+                    onPressed: () async {
+                      final selection = await _showTagFilter(context, query.tags, query.broad, options, locale);
+                      if (selection != null) notifier.tags(selection.tags, selection.broad);
+                    },
+                  ),
+                  _MenuFilterButton(
+                    label: l10n.duration(query.duration.isEmpty ? l10n.all : options.durations.localize(query.duration, locale) ?? query.duration),
+                    icon: Icons.schedule_outlined,
+                    values: options.durations.options.map((item) => item.searchKey ?? '').toList(),
+                    onSelected: notifier.duration,
+                    formatter: (value) => value.isEmpty ? l10n.all : options.durations.localize(value, locale) ?? value,
+                  ),
+                  _ActionFilterButton(
+                    label: l10n.searchAuthors,
+                    icon: Icons.person_search_outlined,
+                    selected: query.type == 'artist',
+                    onPressed: () => notifier.type(query.type == 'artist' ? '' : 'artist'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              FilledButton(onPressed: () => Navigator.pop(context), child: Text(l10n.done)),
+            ],
           ),
-          _MenuFilterButton(
-            label: l10n.sort(query.sort.isEmpty ? l10n.defaultValue : sorts.localize(query.sort, locale) ?? query.sort),
-            icon: Icons.sort,
-            values: sorts.options.map((item) => item.searchKey ?? '').toList(),
-            onSelected: notifier.sort,
-            formatter: (value) => value.isEmpty ? l10n.defaultValue : sorts.localize(value, locale) ?? value,
-          ),
-          _ActionFilterButton(
-            label: l10n.releaseDate(query.date.isEmpty ? l10n.all : options!.releaseDates.localize(query.date, locale) ?? query.date),
-            icon: Icons.calendar_month_outlined,
-            onPressed: () async {
-              final date = await _showDateFilter(context, query.date, options!.releaseDates.options, locale);
-              if (date != null) notifier.date(date);
-            },
-          ),
-          _ActionFilterButton(
-            label: query.tags.isEmpty ? l10n.tags : l10n.tagsSelected(query.tags.length),
-            icon: Icons.sell_outlined,
-            onPressed: () async {
-              final selection = await _showTagFilter(context, query.tags, query.broad, options!, locale);
-              if (selection != null) notifier.tags(selection.tags, selection.broad);
-            },
-          ),
-          _MenuFilterButton(
-            label: l10n.duration(query.duration.isEmpty ? l10n.all : durations.localize(query.duration, locale) ?? query.duration),
-            icon: Icons.schedule_outlined,
-            values: durations.options.map((item) => item.searchKey ?? '').toList(),
-            onSelected: notifier.duration,
-            formatter: (value) => value.isEmpty ? l10n.all : durations.localize(value, locale) ?? value,
-          ),
-          _ActionFilterButton(
-            label: l10n.searchAuthors,
-            icon: Icons.person_search_outlined,
-            selected: query.type == 'artist',
-            onPressed: () => notifier.type(query.type == 'artist' ? '' : 'artist'),
-          ),
-        ].map((child) => Padding(padding: const EdgeInsets.only(right: 8), child: child)).toList(),
+        ),
       ),
     );
   }
@@ -246,9 +444,7 @@ class _MenuFilterButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => MenuAnchor(
-        menuChildren: values
-            .map((value) => MenuItemButton(onPressed: () => onSelected(value), child: Text(formatter(value))))
-            .toList(growable: false),
+        menuChildren: values.map((value) => MenuItemButton(onPressed: () => onSelected(value), child: Text(formatter(value)))).toList(growable: false),
         builder: (context, controller, child) => FilledButton.tonalIcon(
           onPressed: controller.open,
           icon: Icon(icon, size: 18),
@@ -332,7 +528,7 @@ class _DateFilterDialogState extends State<_DateFilterDialog> {
               DropdownButtonFormField<String>(
                 value: _range,
                 decoration: InputDecoration(labelText: l10n.releaseDateTitle),
-                 items: widget.options.map((item) => DropdownMenuItem(value: item.searchKey ?? '', child: Text((item.searchKey?.isEmpty ?? true) ? l10n.all : item.labelFor(widget.locale)))).toList(),
+                items: widget.options.map((item) => DropdownMenuItem(value: item.searchKey ?? '', child: Text((item.searchKey?.isEmpty ?? true) ? l10n.all : item.labelFor(widget.locale)))).toList(),
                 onChanged: (value) => setState(() => _range = value ?? ''),
               )
             else
@@ -488,30 +684,6 @@ String _tagGroupLabel(AppLocalizations l10n, String group) => switch (group) {
   'sex_positions' => l10n.tagPositions,
   _ => group,
 };
-
-class _PaginationBar extends StatelessWidget {
-  const _PaginationBar({required this.result, required this.onChanged});
-
-  final SearchResult? result;
-  final ValueChanged<int> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final value = result;
-    if (value == null || value.totalPages <= 1) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          IconButton(onPressed: value.page > 1 ? () => onChanged(value.page - 1) : null, icon: const Icon(Icons.chevron_left)),
-          Text('${value.page} / ${value.totalPages}', style: Theme.of(context).textTheme.labelLarge),
-          IconButton(onPressed: value.page < value.totalPages ? () => onChanged(value.page + 1) : null, icon: const Icon(Icons.chevron_right)),
-        ],
-      ),
-    );
-  }
-}
 
 class _ErrorView extends StatelessWidget {
   const _ErrorView({required this.error, required this.onRetry});

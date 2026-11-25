@@ -40,15 +40,22 @@ class WatchProgress {
 }
 
 class WatchHistory {
-  const WatchHistory({required this.id, required this.videoCode, required this.title, required this.watchedMs, required this.date, required this.createdAt});
+  const WatchHistory({required this.id, required this.videoCode, required this.title, required this.watchedMs, required this.date, required this.createdAt, this.coverUrl, this.sessionKey, this.artistName, this.duration, this.views, this.rating, this.uploadTime});
   final String id;
   final String videoCode;
   final String title;
   final int watchedMs;
   final String date;
   final int createdAt;
-  Map<String, dynamic> toJson() => {'id': id, 'videoCode': videoCode, 'title': title, 'watchedMs': watchedMs, 'date': date, 'createdAt': createdAt};
-  factory WatchHistory.fromJson(Map<String, dynamic> json) => WatchHistory(id: json['id'] as String? ?? '', videoCode: json['videoCode'] as String? ?? '', title: json['title'] as String? ?? '', watchedMs: json['watchedMs'] as int? ?? 0, date: json['date'] as String? ?? '', createdAt: json['createdAt'] as int? ?? 0);
+  final String? coverUrl;
+  final String? sessionKey;
+  final String? artistName;
+  final String? duration;
+  final String? views;
+  final String? rating;
+  final String? uploadTime;
+  Map<String, dynamic> toJson() => {'id': id, 'videoCode': videoCode, 'title': title, 'watchedMs': watchedMs, 'date': date, 'createdAt': createdAt, 'coverUrl': coverUrl, 'sessionKey': sessionKey, 'artistName': artistName, 'duration': duration, 'views': views, 'rating': rating, 'uploadTime': uploadTime}..removeWhere((key, value) => value == null);
+  factory WatchHistory.fromJson(Map<String, dynamic> json) => WatchHistory(id: json['id'] as String? ?? '', videoCode: json['videoCode'] as String? ?? '', title: json['title'] as String? ?? '', watchedMs: json['watchedMs'] as int? ?? 0, date: json['date'] as String? ?? '', createdAt: json['createdAt'] as int? ?? 0, coverUrl: json['coverUrl'] as String?, sessionKey: json['sessionKey'] as String?, artistName: json['artistName'] as String?, duration: json['duration'] as String?, views: json['views'] as String?, rating: json['rating'] as String?, uploadTime: json['uploadTime'] as String?);
 }
 
 class Playlist {

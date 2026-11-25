@@ -94,6 +94,7 @@ class _ThemeSettingsPageState extends ConsumerState<ThemeSettingsPage> {
               ),
               SettingsSliderItem(
                title: l10n.textSize,
+               leading: const Icon(Icons.format_size_rounded),
                value: settings.textScale,
                min: .8,
                max: 1.4,

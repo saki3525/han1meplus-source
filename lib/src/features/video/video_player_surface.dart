@@ -45,7 +45,7 @@ class VideoPlayerSurface extends ConsumerStatefulWidget {
 class _VideoPlayerSurfaceState extends ConsumerState<VideoPlayerSurface> {
   static const _keyboardSeekStep = Duration(seconds: 10);
   static const _keyboardVolumeStep = 0.1;
-  bool _showControls = true;
+  final ValueNotifier<bool> _controls = ValueNotifier(true);
   bool _locked = false;
   double? _dragStartX;
   double? _dragStartY;
@@ -73,6 +73,7 @@ class _VideoPlayerSurfaceState extends ConsumerState<VideoPlayerSurface> {
     _hideTimer?.cancel();
     _adjustmentClearTimer?.cancel();
     _speedBoostTimer?.cancel();
+    _controls.dispose();
     super.dispose();
   }
 
@@ -83,16 +84,26 @@ class _VideoPlayerSurfaceState extends ConsumerState<VideoPlayerSurface> {
 
   void _restartTimer() {
     _hideTimer?.cancel();
-    if (!_showControls || _locked) return;
+    if (!_controls.value || _locked) return;
     final seconds = ref.read(settingsProvider).valueOrNull?.playerControlsTimeoutSeconds ?? 4;
-    _hideTimer = Timer(Duration(seconds: seconds), () { if (mounted) setState(() => _showControls = false); _applyControlsVisibility(); });
+    _hideTimer = Timer(Duration(seconds: seconds), () {
+      if (!mounted) return;
+      _controls.value = false;
+      _applyControlsVisibility();
+    });
   }
 
   void _applyControlsVisibility() {
-    ref.read(playerControlsVisibilityProvider.notifier).set(_showControls && !_locked);
+    ref.read(playerControlsVisibilityProvider.notifier).set(_controls.value && !_locked);
   }
 
-  void _toggleControls() { if (_locked) return; setState(() => _showControls = !_showControls); _restartTimer(); _applyControlsVisibility(); }
+  void _toggleControls() {
+    if (_locked) return;
+    _controls.value = !_controls.value;
+    _restartTimer();
+    _applyControlsVisibility();
+  }
+
   void _togglePlayback() {
     final controller = widget.controller.value;
     if (controller == null) return;
@@ -102,7 +113,9 @@ class _VideoPlayerSurfaceState extends ConsumerState<VideoPlayerSurface> {
 
   void _handleMouseHover() {
     if (_locked) return;
-    if (!_showControls) setState(() => _showControls = true);
+    if (!_controls.value) {
+      _controls.value = true;
+    }
     _restartTimer();
     _applyControlsVisibility();
   }
@@ -312,80 +325,205 @@ class _VideoPlayerSurfaceState extends ConsumerState<VideoPlayerSurface> {
             onExit: (_) => _restartTimer(),
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: _toggleControls,
               onDoubleTap: _togglePlayback,
-              onLongPressStart: (_) => _longPress(true),
-              onLongPressEnd: (_) => _longPress(false),
-              onLongPressCancel: () => _longPress(false),
-              onSecondaryLongPressStart: (_) => _longPress(true),
-              onSecondaryLongPressEnd: (_) => _longPress(false),
-              onSecondaryLongPressCancel: () => _longPress(false),
-              onPanStart: _dragStart,
-              onPanUpdate: _dragUpdate,
-              onPanEnd: _dragEnd,
-              child: Stack(fit: StackFit.expand, children: [
-                const ColoredBox(color: Colors.black),
-                ValueListenableBuilder<VideoPlayerValue>(
-                  valueListenable: controller,
-                  builder: (context, value, _) => _VideoViewport(controller: controller, value: value),
-                ),
-                _BufferingOverlay(controller: controller, onReload: widget.onReload),
-                ValueListenableBuilder<VideoPlayerValue>(valueListenable: controller, builder: (context, value, _) => _showControls && !_locked ? VideoPlayerControls(controller: controller, fullscreen: widget.fullscreen, onFullscreen: widget.onFullscreen, onInteraction: _restartTimer, video: widget.video, quality: widget.quality, onQualitySelected: widget.onQualitySelected, onSuperResolutionSelected: widget.onSuperResolutionSelected, onNext: widget.onNext, onEpisodeSelected: widget.onEpisodeSelected) : const SizedBox.shrink()),
-                if (_locked) Align(alignment: Alignment.centerLeft, child: IconButton(color: Colors.white, tooltip: l10n.unlockControls, onPressed: () { setState(() => _locked = false); _restartTimer(); _applyControlsVisibility(); }, icon: const Icon(Icons.lock))),
-                if (_showControls && !_locked && widget.onBack != null)
-                  Positioned(
-                    top: 8,
-                    left: 8,
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      BackButton(color: Colors.white, onPressed: widget.onBack),
-                      if (widget.onHome != null) IconButton(color: Colors.white, tooltip: l10n.home, onPressed: widget.onHome, icon: const Icon(Icons.home_outlined)),
-                    ]),
-                  ),
-                if (_showControls && widget.fullscreen && !_locked) Align(alignment: Alignment.centerLeft, child: IconButton(color: Colors.white, tooltip: l10n.lockControls, onPressed: () { setState(() => _locked = true); _applyControlsVisibility(); }, icon: const Icon(Icons.lock_open_outlined))),
-                if (widget.fullscreen && widget.keyframes.isNotEmpty) _KeyframeCountdown(controller: controller, keyframes: widget.keyframes),
-                if (_showControls && widget.fullscreen && !_locked) Positioned(top: 8, left: widget.onHome != null ? 96 : 48, right: 212, child: _MarqueeTitle(title: widget.video.title)),
-                if (_showControls && !_locked)
-                  Positioned(
-                    top: 4,
-                    right: widget.fullscreen && widget.onKeyframes != null ? 56 : 4,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        VideoPlayerSkipButton(controller: controller, onInteraction: _restartTimer, fallbackDuration: parseVideoDuration(widget.video.duration)),
-                        if (Platform.isAndroid) IconButton(color: Colors.white, tooltip: l10n.pictureInPicture, visualDensity: VisualDensity.compact, onPressed: () => _enterPictureInPicture(controller), icon: const Icon(Icons.picture_in_picture_alt_outlined)),
-                        widget.fullscreen
-                            ? VideoPlayerFullscreenMoreMenu(sources: widget.video.sources, quality: widget.quality)
-                            : VideoPlayerPortraitMoreMenu(controller: controller, video: widget.video, quality: widget.quality, onQualitySelected: widget.onQualitySelected, onSuperResolutionSelected: widget.onSuperResolutionSelected),
-                      ],
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _toggleControls,
+                onLongPressStart: (_) => _longPress(true),
+                onLongPressEnd: (_) => _longPress(false),
+                onLongPressCancel: () => _longPress(false),
+                onSecondaryLongPressStart: (_) => _longPress(true),
+                onSecondaryLongPressEnd: (_) => _longPress(false),
+                onSecondaryLongPressCancel: () => _longPress(false),
+                onPanStart: _dragStart,
+                onPanUpdate: _dragUpdate,
+                onPanEnd: _dragEnd,
+                child: Stack(fit: StackFit.expand, children: [
+                  const ColoredBox(color: Colors.black),
+                  RepaintBoundary(
+                    child: ValueListenableBuilder<VideoPlayerValue>(
+                      valueListenable: controller,
+                      builder: (context, value, _) => _VideoViewport(controller: controller, value: value),
                     ),
                   ),
-                if (_showControls && widget.fullscreen && !_locked && widget.onKeyframes != null)
-                  Positioned(
-                    top: 8,
-                    right: 8,
-                    child: Tooltip(
-                      message: l10n.longPressAddKeyframe,
-                      child: GestureDetector(
-                        onTap: widget.onKeyframes,
-                        onLongPress: widget.onAddKeyframe,
-                        child: const Padding(
-                          padding: EdgeInsets.all(12),
-                          child: Text('🥵', style: TextStyle(fontSize: 24)),
-                        ),
-                      ),
+                  _BufferingOverlay(controller: controller, onReload: widget.onReload),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: _controls,
+                    builder: (context, show, _) => _ControlOverlays(
+                      visible: show && !_locked,
+                      controller: controller,
+                      fullscreen: widget.fullscreen,
+                      video: widget.video,
+                      quality: widget.quality,
+                      onQualitySelected: widget.onQualitySelected,
+                      onSuperResolutionSelected: widget.onSuperResolutionSelected,
+                      onNext: widget.onNext,
+                      onEpisodeSelected: widget.onEpisodeSelected,
+                      onBack: widget.onBack,
+                      onHome: widget.onHome,
+                      onFullscreen: widget.onFullscreen,
+                      onInteraction: _restartTimer,
+                      onPip: () => _enterPictureInPicture(controller),
+                      onLock: () {
+                        setState(() => _locked = true);
+                        _applyControlsVisibility();
+                      },
+                      onKeyframes: widget.onKeyframes,
+                      onAddKeyframe: widget.onAddKeyframe,
                     ),
                   ),
-                if (_adjustment != null)
-                  switch (_adjustment!.kind) {
-                    _AdjustmentKind.brightness => Positioned(top: 24, left: 16, child: _AdjustmentHud(adjustment: _adjustment!)),
-                    _AdjustmentKind.volume => Positioned(top: 24, right: 16, child: _AdjustmentHud(adjustment: _adjustment!)),
-                    _ => Positioned(top: 24, left: 0, right: 0, child: Center(child: _AdjustmentHud(adjustment: _adjustment!))),
-                  },
-              ]),
+                  if (_locked) Align(alignment: Alignment.centerLeft, child: IconButton(color: Colors.white, tooltip: l10n.unlockControls, onPressed: () { setState(() => _locked = false); _restartTimer(); _applyControlsVisibility(); }, icon: const Icon(Icons.lock))),
+                  if (widget.fullscreen && widget.keyframes.isNotEmpty) _KeyframeCountdown(controller: controller, keyframes: widget.keyframes),
+                  if (_adjustment != null)
+                    switch (_adjustment!.kind) {
+                      _AdjustmentKind.brightness => Positioned(top: 24, left: 16, child: _AdjustmentHud(adjustment: _adjustment!)),
+                      _AdjustmentKind.volume => Positioned(top: 24, right: 16, child: _AdjustmentHud(adjustment: _adjustment!)),
+                      _ => Positioned(top: 24, left: 0, right: 0, child: Center(child: _AdjustmentHud(adjustment: _adjustment!))),
+                    },
+                ]),
+              ),
             ),
           );
         },
       ),
+    );
+  }
+}
+
+class _ControlOverlays extends StatelessWidget {
+  const _ControlOverlays({
+    required this.visible,
+    required this.controller,
+    required this.fullscreen,
+    required this.video,
+    required this.quality,
+    required this.onQualitySelected,
+    required this.onSuperResolutionSelected,
+    required this.onInteraction,
+    required this.onPip,
+    required this.onLock,
+    required this.onFullscreen,
+    this.onNext,
+    this.onEpisodeSelected,
+    this.onBack,
+    this.onHome,
+    this.onKeyframes,
+    this.onAddKeyframe,
+  });
+
+  static const _duration = Duration(milliseconds: 220);
+  static const _curve = Curves.easeOutCubic;
+
+  final bool visible;
+  final VideoPlayerController controller;
+  final bool fullscreen;
+  final VideoDetail video;
+  final ValueListenable<String?> quality;
+  final ValueChanged<VideoSource> onQualitySelected;
+  final ValueChanged<SuperResolutionMode> onSuperResolutionSelected;
+  final VoidCallback onInteraction;
+  final VoidCallback onPip;
+  final VoidCallback onLock;
+  final Future<void> Function() onFullscreen;
+  final VoidCallback? onNext;
+  final ValueChanged<VideoCard>? onEpisodeSelected;
+  final VoidCallback? onBack;
+  final VoidCallback? onHome;
+  final VoidCallback? onKeyframes;
+  final VoidCallback? onAddKeyframe;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final top = visible ? Offset.zero : const Offset(0, -1);
+    final bottom = visible ? Offset.zero : const Offset(0, 1);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: IgnorePointer(
+            ignoring: !visible,
+            child: AnimatedSlide(
+              offset: top,
+              duration: _duration,
+              curve: _curve,
+              child: AnimatedOpacity(
+                opacity: visible ? 1 : 0,
+                duration: const Duration(milliseconds: 180),
+                child: SafeArea(
+                  bottom: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
+                    child: Row(
+                      children: [
+                        if (onBack != null) BackButton(color: Colors.white, onPressed: onBack),
+                        if (onHome != null) IconButton(color: Colors.white, tooltip: l10n.home, onPressed: onHome, icon: const Icon(Icons.home_outlined)),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: fullscreen
+                              ? _MarqueeTitle(title: video.title)
+                              : Text(video.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                        ),
+                        VideoPlayerSkipButton(controller: controller, onInteraction: onInteraction, fallbackDuration: parseVideoDuration(video.duration)),
+                        if (Platform.isAndroid)
+                          IconButton(color: Colors.white, tooltip: l10n.pictureInPicture, visualDensity: VisualDensity.compact, onPressed: onPip, icon: const Icon(Icons.picture_in_picture_alt_outlined)),
+                        fullscreen
+                            ? VideoPlayerFullscreenMoreMenu(sources: video.sources, quality: quality)
+                            : VideoPlayerPortraitMoreMenu(controller: controller, video: video, quality: quality, onQualitySelected: onQualitySelected, onSuperResolutionSelected: onSuperResolutionSelected),
+                        if (fullscreen && onKeyframes != null)
+                          Tooltip(
+                            message: l10n.longPressAddKeyframe,
+                            child: GestureDetector(
+                              onTap: onKeyframes,
+                              onLongPress: onAddKeyframe,
+                              child: const Padding(
+                                padding: EdgeInsets.all(10),
+                                child: Text('🥵', style: TextStyle(fontSize: 22)),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: IgnorePointer(
+            ignoring: !visible,
+            child: AnimatedSlide(
+              offset: bottom,
+              duration: _duration,
+              curve: _curve,
+              child: AnimatedOpacity(
+                opacity: visible ? 1 : 0,
+                duration: const Duration(milliseconds: 180),
+                child: VideoPlayerControls(
+                  controller: controller,
+                  fullscreen: fullscreen,
+                  onFullscreen: onFullscreen,
+                  onInteraction: onInteraction,
+                  video: video,
+                  quality: quality,
+                  onQualitySelected: onQualitySelected,
+                  onSuperResolutionSelected: onSuperResolutionSelected,
+                  onNext: onNext,
+                  onEpisodeSelected: onEpisodeSelected,
+                ),
+              ),
+            ),
+          ),
+        ),
+        if (fullscreen && visible) Align(alignment: Alignment.centerLeft, child: IconButton(color: Colors.white, tooltip: l10n.lockControls, onPressed: onLock, icon: const Icon(Icons.lock_open_outlined))),
+      ],
     );
   }
 }

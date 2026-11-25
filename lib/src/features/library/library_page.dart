@@ -5,20 +5,23 @@ import 'package:go_router/go_router.dart';
 
 import '../../../l10n/app_localizations.dart';
 
-import '../../data/local/library_repository.dart';
-import '../../data/local/watch_repository.dart';
 import '../../core/app_shell.dart';
 import '../../core/settings.dart';
 import '../../data/han1me_repository.dart';
+import '../../data/local/library_repository.dart';
 import '../../domain/models/library.dart';
 import '../../domain/models/search_query.dart';
 import '../../domain/models/video.dart';
+import '../account/account_controller.dart';
+import '../settings/settings_controller.dart';
+import '../shared/search_loading_gate.dart';
 import '../shared/video_card.dart';
+import 'history_page.dart';
+import 'library_empty_state.dart';
+import 'library_tabs.dart';
 import 'playlists/local_playlist_page.dart';
 import 'playlists/playlist_shared.dart';
 import 'playlists/remote_playlist_page.dart';
-import '../account/account_controller.dart';
-import '../settings/settings_controller.dart';
 import 'remote_library_controller.dart';
 
 class LibraryPage extends ConsumerStatefulWidget {
@@ -32,85 +35,80 @@ class LibraryPage extends ConsumerStatefulWidget {
 
 class _LibraryPageState extends ConsumerState<LibraryPage> {
   String? _artistId;
+  final _searchController = TextEditingController();
+  var _searchExpanded = false;
+  var _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _toggleSearch() {
+    setState(() {
+      _searchExpanded = !_searchExpanded;
+      if (!_searchExpanded) {
+        _query = '';
+        _searchController.clear();
+      }
+    });
+  }
+
+  void _onQueryChanged(String value) => setState(() => _query = value);
 
   @override
   Widget build(BuildContext context) {
-    final settings = ref.watch(settingsProvider).valueOrNull;
-    final order = settings?.resolvedLibraryTabOrder ?? defaultLibraryTabKeys;
+    if (widget.initialTab == 'history') return const HistoryPage();
+    final orderKey = ref.watch(settingsProvider.select((value) => (value.valueOrNull?.resolvedLibraryTabOrder ?? defaultLibraryTabKeys).join('|')));
+    final order = orderKey.split('|');
     final initialTab = _normaliseLibraryTabKey(order, widget.initialTab);
     final initialIndex = _libraryTabIndex(order, initialTab);
+    final drawerMode = ref.watch(settingsProvider.select((value) => value.valueOrNull?.useNavigationDrawer ?? false));
     final account = ref.watch(accountProvider).valueOrNull;
-    final drawerMode = settings?.useNavigationDrawer ?? false;
-    if (account?.id != null) return _RemoteLibrary(initialTab: initialTab, drawerMode: drawerMode);
-    final value = ref.watch(libraryProvider);
     final l10n = AppLocalizations.of(context)!;
+    if (account?.id != null) {
+      return _RemoteLibrary(
+        order: order,
+        initialIndex: initialIndex,
+        initialTab: initialTab,
+        drawerMode: drawerMode,
+        query: _query,
+        searchExpanded: _searchExpanded,
+        searchController: _searchController,
+        onToggleSearch: _toggleSearch,
+        onQueryChanged: _onQueryChanged,
+      );
+    }
+    final value = ref.watch(libraryProvider);
     if (drawerMode) {
       return Scaffold(
         appBar: AppBar(
           leading: Navigator.of(context).canPop() || permanentNavigationDrawer(context) ? null : IconButton(onPressed: openAppDrawer, icon: const Icon(Icons.menu)),
-          title: Text(_tabTitle(l10n, initialTab)),
-          actions: initialTab == 'history' ? [IconButton(onPressed: () => context.push('/stats'), icon: const Icon(Icons.bar_chart_outlined))] : null,
+          title: Text(l10n.library),
         ),
         body: value.when(
           loading: () => const Center(child: M3EContainedLoadingIndicator()),
           error: (error, stackTrace) => Center(child: Text('$error')),
-          data: (library) => _tabContent(library, initialTab),
-        ),
-      );
-    }
-    return DefaultTabController(
-      length: order.length,
-      initialIndex: initialIndex,
-      child: Scaffold(
-        appBar: AppBar(
-          leading: drawerMode ? (permanentNavigationDrawer(context) ? null : IconButton(onPressed: openAppDrawer, icon: const Icon(Icons.menu))) : null,
-          title: Text(l10n.myLibrary),
-          actions: [IconButton(onPressed: () => context.push('/stats'), icon: const Icon(Icons.bar_chart_outlined))],
-          bottom: TabBar(isScrollable: true, tabAlignment: TabAlignment.start, tabs: _tabs(l10n, order)),
-        ),
-        body: value.when(
-          loading: () => const Center(child: M3EContainedLoadingIndicator()),
-          error: (error, stackTrace) => Center(child: Text('$error')),
-          data: (library) => TabBarView(children: [for (final key in order) _tabContent(library, key)]),
-        ),
-      ),
-    );
-  }
-
-  Widget _tabContent(LibraryState library, String key) {
-    final l10n = AppLocalizations.of(context)!;
-    return switch (key) {
-      'watch-later' => _SelectableVideos(videos: library.watchLater, emptyMessage: l10n.noWatchLater, remover: (ref, ids) => ref.read(libraryProvider.notifier).removeWatchLater(ids)),
-      'favorites' => _SelectableVideos(videos: library.favorites, emptyMessage: l10n.noFavoriteVideos, remover: (ref, ids) => ref.read(libraryProvider.notifier).removeFavorites(ids)),
-      'playlists' => _LocalPlaylists(playlists: library.playlists),
-      'subscriptions' => _LocalSubscriptions(artists: library.artists, videos: library.subscriptionVideos, selectedArtist: _artistId, onSelected: (artist) => setState(() => _artistId = artist)),
-      'history' => const _LocalHistory(),
-      _ => _SelectableVideos(videos: library.watchLater, emptyMessage: l10n.noWatchLater, remover: (ref, ids) => ref.read(libraryProvider.notifier).removeWatchLater(ids)),
-    };
-  }
-}
-
-class _RemoteLibrary extends ConsumerWidget {
-  const _RemoteLibrary({required this.initialTab, required this.drawerMode});
-
-  final String initialTab;
-  final bool drawerMode;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final l10n = AppLocalizations.of(context)!;
-    final settings = ref.watch(settingsProvider).valueOrNull;
-    final order = settings?.resolvedLibraryTabOrder ?? defaultLibraryTabKeys;
-    final initialKey = _normaliseLibraryTabKey(order, initialTab);
-    final initialIndex = _libraryTabIndex(order, initialKey);
-    final account = ref.watch(accountProvider).valueOrNull;
-    if (drawerMode) {
-      return Scaffold(
-        appBar: AppBar(leading: permanentNavigationDrawer(context) ? null : IconButton(onPressed: openAppDrawer, icon: const Icon(Icons.menu)), title: Text(_tabTitle(l10n, initialKey))),
-        body: ref.watch(remoteLibraryProvider).when(
-          loading: () => const Center(child: M3EContainedLoadingIndicator()),
-          error: (error, stackTrace) => Center(child: FilledButton(onPressed: () => ref.invalidate(remoteLibraryProvider), child: Text(l10n.reload))),
-          data: (library) => _remoteTabContent(context, library, initialKey, account?.csrfToken),
+          data: (library) => Column(
+            children: [
+              _DrawerActionBar(
+                count: _localCount(library, initialTab),
+                searchExpanded: _searchExpanded,
+                onToggleSearch: _toggleSearch,
+                showPlaylistAction: initialTab == 'playlists',
+                onAddPlaylist: () => _createLocalPlaylist(context, ref),
+              ),
+              _SearchFieldSlot(expanded: _searchExpanded, controller: _searchController, onChanged: _onQueryChanged),
+              Expanded(
+                child: SearchLoadingGate(
+                  enabled: _searchExpanded,
+                  loadingKey: _query.trim().isEmpty ? null : _query,
+                  child: _tabContent(library, initialTab),
+                ),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -118,137 +116,360 @@ class _RemoteLibrary extends ConsumerWidget {
       length: order.length,
       initialIndex: initialIndex,
       child: Builder(
-        builder: (context) => Scaffold(
-          appBar: AppBar(leading: settings?.useNavigationDrawer ?? false ? (permanentNavigationDrawer(context) ? null : IconButton(onPressed: openAppDrawer, icon: const Icon(Icons.menu))) : null, title: Text(l10n.myLibrary), bottom: TabBar(isScrollable: true, tabAlignment: TabAlignment.start, tabs: _tabs(l10n, order))),
-          body: ref.watch(remoteLibraryProvider).when(
-                loading: () => const Center(child: M3EContainedLoadingIndicator()),
-                error: (error, stackTrace) => Center(child: FilledButton(onPressed: () => ref.invalidate(remoteLibraryProvider), child: Text(l10n.reload))),
-                data: (library) => TabBarView(children: [for (final key in order) _remoteTabContent(context, library, key, account?.csrfToken)]),
+        builder: (context) {
+          final controller = DefaultTabController.of(context);
+          final tabs = _tabEntries(l10n, order);
+          return Scaffold(
+            appBar: AppBar(title: Text(l10n.library)),
+            body: value.when(
+              loading: () => const Center(child: M3EContainedLoadingIndicator()),
+              error: (error, stackTrace) => Center(child: Text('$error')),
+              data: (library) => Column(
+                children: [
+                  const SizedBox(height: 4),
+                  LibraryTabStrip(controller: controller, tabs: tabs),
+                  LibraryFilterBar(
+                    controller: controller,
+                    tabs: tabs,
+                    count: (key) => _localCount(library, key),
+                    searchExpanded: _searchExpanded,
+                    onToggleSearch: _toggleSearch,
+                    onAddPlaylist: () => _createLocalPlaylist(context, ref),
+                  ),
+                  _SearchFieldSlot(expanded: _searchExpanded, controller: _searchController, onChanged: _onQueryChanged),
+                  Expanded(
+                    child: SearchLoadingGate(
+                      enabled: _searchExpanded,
+                      loadingKey: _query.trim().isEmpty ? null : _query,
+                      child: TabBarView(controller: controller, children: [for (final key in order) _tabContent(library, key)]),
+                    ),
+                  ),
+                ],
               ),
-        ),
+            ),
+          );
+        },
       ),
     );
   }
+
+  int _localCount(LibraryState library, String key) => switch (key) {
+        'watch-later' => _filterVideos(library.watchLater, _query).length,
+        'favorites' => _filterVideos(library.favorites, _query).length,
+        'playlists' => _filterPlaylists(library.playlists, _query).length,
+        'subscriptions' => _uniqueVideos(_filterSubscriptionVideos(library.subscriptionVideos, _query)).length,
+        _ => 0,
+      };
+
+  Widget _tabContent(LibraryState library, String key) {
+    final l10n = AppLocalizations.of(context)!;
+    return switch (key) {
+      'watch-later' => _SelectableVideos(videos: _filterVideos(library.watchLater, _query), emptyMessage: l10n.noWatchLater, remover: (ref, ids) => ref.read(libraryProvider.notifier).removeWatchLater(ids)),
+      'favorites' => _SelectableVideos(videos: _filterVideos(library.favorites, _query), emptyMessage: l10n.noFavoriteVideos, remover: (ref, ids) => ref.read(libraryProvider.notifier).removeFavorites(ids)),
+      'playlists' => _LocalPlaylists(playlists: _filterPlaylists(library.playlists, _query)),
+      'subscriptions' => _LocalSubscriptions(artists: _filterArtists(library.artists, _query), videos: _filterSubscriptionVideos(library.subscriptionVideos, _query), selectedArtist: _artistId, onSelected: (artist) => setState(() => _artistId = artist)),
+      _ => _SelectableVideos(videos: _filterVideos(library.watchLater, _query), emptyMessage: l10n.noWatchLater, remover: (ref, ids) => ref.read(libraryProvider.notifier).removeWatchLater(ids)),
+    };
+  }
+
+  Future<void> _createLocalPlaylist(BuildContext context, WidgetRef ref) async {
+    final result = await showDialog<PlaylistEditorResult>(context: context, builder: (_) => const PlaylistEditorDialog());
+    if (result == null || result.title.isEmpty) return;
+    await ref.read(libraryProvider.notifier).createPlaylist(result.title, description: result.description);
+  }
 }
 
-Widget _remoteTabContent(BuildContext context, RemoteLibrary library, String key, String? accountToken) {
-  final l10n = AppLocalizations.of(context)!;
-  return switch (key) {
-    'watch-later' => _SelectableVideos(
-        videos: library.watchLater,
-        emptyMessage: l10n.noWatchLater,
-        remover: (ref, ids) async {
-          final account = ref.read(accountProvider).valueOrNull;
-          final userId = account?.id;
-          final token = library.csrfToken ?? accountToken;
-          if (userId == null || token == null) return;
-          final settings = await ref.read(settingsProvider.future);
-          final repository = ref.read(han1meRepositoryProvider);
-          for (final id in ids) {
-            await repository.saveToPlaylist(settings.resolvedBaseUrl, token, 'save', id, false);
-          }
-          ref.invalidate(remoteLibraryProvider);
-        },
-      ),
-    'favorites' => _SelectableVideos(
-        videos: library.favorites,
-        emptyMessage: l10n.noFavoriteVideos,
-        remover: (ref, ids) async {
-          final account = ref.read(accountProvider).valueOrNull;
-          final userId = account?.id;
-          final token = library.csrfToken ?? accountToken;
-          if (userId == null || token == null) return;
-          final settings = await ref.read(settingsProvider.future);
-          final repository = ref.read(han1meRepositoryProvider);
-          for (final id in ids) {
-            await repository.setFavorite(settings.resolvedBaseUrl, token, userId, id, false);
-          }
-          ref.invalidate(remoteLibraryProvider);
-        },
-      ),
-    'playlists' => _Playlists(playlists: library.playlists, token: library.csrfToken ?? accountToken),
-    'subscriptions' => _RemoteSubscriptions(artists: library.subscriptionArtists, videos: library.subscriptions),
-    'history' => _RemoteHistory(videos: library.history, token: accountToken ?? library.csrfToken),
-    _ => _SelectableVideos(
-        videos: library.watchLater,
-        emptyMessage: l10n.noWatchLater,
-        remover: (ref, ids) async {
-          final account = ref.read(accountProvider).valueOrNull;
-          final userId = account?.id;
-          final token = library.csrfToken ?? accountToken;
-          if (userId == null || token == null) return;
-          final settings = await ref.read(settingsProvider.future);
-          final repository = ref.read(han1meRepositoryProvider);
-          for (final id in ids) {
-            await repository.saveToPlaylist(settings.resolvedBaseUrl, token, 'save', id, false);
-          }
-          ref.invalidate(remoteLibraryProvider);
-        },
-      ),
-  };
-}
+class _SearchFieldSlot extends StatelessWidget {
+  const _SearchFieldSlot({required this.expanded, required this.controller, required this.onChanged});
 
-String _tabTitle(AppLocalizations l10n, String key) => switch (key) {
-  'watch-later' => l10n.watchLater,
-  'favorites' => l10n.favoriteVideos,
-  'playlists' => l10n.playlists,
-  'subscriptions' => l10n.subscriptions,
-  'history' => l10n.watchHistory,
-  _ => l10n.watchLater,
-};
-
-class _LocalHistory extends ConsumerStatefulWidget {
-  const _LocalHistory();
+  final bool expanded;
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
 
   @override
-  ConsumerState<_LocalHistory> createState() => _LocalHistoryState();
+  Widget build(BuildContext context) => AnimatedSize(
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOutCubic,
+        alignment: Alignment.topCenter,
+        clipBehavior: Clip.hardEdge,
+        child: expanded
+            ? LibrarySearchField(controller: controller, onChanged: onChanged)
+            : const SizedBox(width: double.infinity),
+      );
 }
 
-class _LocalHistoryState extends ConsumerState<_LocalHistory> {
-  final _selected = <String>{};
-  var _selectionMode = false;
+class _RemoteLibrary extends ConsumerWidget {
+  const _RemoteLibrary({
+    required this.order,
+    required this.initialIndex,
+    required this.initialTab,
+    required this.drawerMode,
+    required this.query,
+    required this.searchExpanded,
+    required this.searchController,
+    required this.onToggleSearch,
+    required this.onQueryChanged,
+  });
+
+  final List<String> order;
+  final int initialIndex;
+  final String initialTab;
+  final bool drawerMode;
+  final String query;
+  final bool searchExpanded;
+  final TextEditingController searchController;
+  final VoidCallback onToggleSearch;
+  final ValueChanged<String> onQueryChanged;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final account = ref.watch(accountProvider).valueOrNull;
+    final token = account?.csrfToken;
+    if (drawerMode) {
+      return Scaffold(
+        appBar: AppBar(leading: permanentNavigationDrawer(context) ? null : IconButton(onPressed: openAppDrawer, icon: const Icon(Icons.menu)), title: Text(l10n.library)),
+        body: ref.watch(remoteLibraryProvider).when(
+          loading: () => const Center(child: M3EContainedLoadingIndicator()),
+          error: (error, stackTrace) => Center(child: FilledButton(onPressed: () => ref.invalidate(remoteLibraryProvider), child: Text(l10n.reload))),
+          data: (library) => Column(
+            children: [
+              _DrawerActionBar(
+                count: _remoteCount(library, initialTab),
+                searchExpanded: searchExpanded,
+                onToggleSearch: onToggleSearch,
+                showPlaylistAction: initialTab == 'playlists',
+                onAddPlaylist: (library.csrfToken ?? token) == null ? null : () => _createPlaylist(context, ref, (library.csrfToken ?? token)!),
+              ),
+              _SearchFieldSlot(expanded: searchExpanded, controller: searchController, onChanged: onQueryChanged),
+              Expanded(
+                child: SearchLoadingGate(
+                  enabled: searchExpanded,
+                  loadingKey: query.trim().isEmpty ? null : query,
+                  child: _remoteTabContent(context, ref, library, initialTab, token),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return DefaultTabController(
+      length: order.length,
+      initialIndex: initialIndex,
+      child: Builder(
+        builder: (context) {
+          final controller = DefaultTabController.of(context);
+          final tabs = _tabEntries(l10n, order);
+          return Scaffold(
+            appBar: AppBar(title: Text(l10n.library)),
+            body: ref.watch(remoteLibraryProvider).when(
+              loading: () => const Center(child: M3EContainedLoadingIndicator()),
+              error: (error, stackTrace) => Center(child: FilledButton(onPressed: () => ref.invalidate(remoteLibraryProvider), child: Text(l10n.reload))),
+              data: (library) => Column(
+                children: [
+                  const SizedBox(height: 4),
+                  LibraryTabStrip(controller: controller, tabs: tabs),
+                  LibraryFilterBar(
+                    controller: controller,
+                    tabs: tabs,
+                    count: (key) => _remoteCount(library, key),
+                    searchExpanded: searchExpanded,
+                    onToggleSearch: onToggleSearch,
+                    onAddPlaylist: (library.csrfToken ?? token) == null ? null : () => _createPlaylist(context, ref, (library.csrfToken ?? token)!),
+                  ),
+                  _SearchFieldSlot(expanded: searchExpanded, controller: searchController, onChanged: onQueryChanged),
+                  Expanded(
+                    child: SearchLoadingGate(
+                      enabled: searchExpanded,
+                      loadingKey: query.trim().isEmpty ? null : query,
+                      child: TabBarView(controller: controller, children: [for (final key in order) _remoteTabContent(context, ref, library, key, token)]),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  int _remoteCount(RemoteLibrary library, String key) => switch (key) {
+        'watch-later' => _filterVideos(library.watchLater, query).length,
+        'favorites' => _filterVideos(library.favorites, query).length,
+        'playlists' => _filterPlaylists(library.playlists, query).length,
+        'subscriptions' => _filterVideos(library.subscriptions, query).length,
+        _ => 0,
+      };
+
+  Widget _remoteTabContent(BuildContext context, WidgetRef ref, RemoteLibrary library, String key, String? accountToken) {
+    final l10n = AppLocalizations.of(context)!;
+    return switch (key) {
+      'watch-later' => _SelectableVideos(
+          videos: _filterVideos(library.watchLater, query),
+          emptyMessage: l10n.noWatchLater,
+          remover: (ref, ids) async {
+            final account = ref.read(accountProvider).valueOrNull;
+            final userId = account?.id;
+            final token = library.csrfToken ?? accountToken;
+            if (userId == null || token == null) return;
+            final settings = await ref.read(settingsProvider.future);
+            final repository = ref.read(han1meRepositoryProvider);
+            for (final id in ids) {
+              await repository.saveToPlaylist(settings.resolvedBaseUrl, token, 'save', id, false);
+            }
+            ref.invalidate(remoteLibraryProvider);
+          },
+        ),
+      'favorites' => _SelectableVideos(
+          videos: _filterVideos(library.favorites, query),
+          emptyMessage: l10n.noFavoriteVideos,
+          remover: (ref, ids) async {
+            final account = ref.read(accountProvider).valueOrNull;
+            final userId = account?.id;
+            final token = library.csrfToken ?? accountToken;
+            if (userId == null || token == null) return;
+            final settings = await ref.read(settingsProvider.future);
+            final repository = ref.read(han1meRepositoryProvider);
+            for (final id in ids) {
+              await repository.setFavorite(settings.resolvedBaseUrl, token, userId, id, false);
+            }
+            ref.invalidate(remoteLibraryProvider);
+          },
+        ),
+      'playlists' => _Playlists(playlists: _filterPlaylists(library.playlists, query)),
+      'subscriptions' => _RemoteSubscriptions(artists: _filterArtists(library.subscriptionArtists, query), videos: _filterVideos(library.subscriptions, query)),
+      _ => _SelectableVideos(
+          videos: _filterVideos(library.watchLater, query),
+          emptyMessage: l10n.noWatchLater,
+          remover: (ref, ids) async {
+            final account = ref.read(accountProvider).valueOrNull;
+            final userId = account?.id;
+            final token = library.csrfToken ?? accountToken;
+            if (userId == null || token == null) return;
+            final settings = await ref.read(settingsProvider.future);
+            final repository = ref.read(han1meRepositoryProvider);
+            for (final id in ids) {
+              await repository.saveToPlaylist(settings.resolvedBaseUrl, token, 'save', id, false);
+            }
+            ref.invalidate(remoteLibraryProvider);
+          },
+        ),
+    };
+  }
+
+  Future<void> _createPlaylist(BuildContext context, WidgetRef ref, String token) async {
+    final result = await showDialog<(String, String)>(context: context, builder: (_) => const _CreatePlaylistDialog());
+    if (result == null || result.$1.isEmpty) return;
+    final settings = await ref.read(settingsProvider.future);
+    await ref.read(han1meRepositoryProvider).createPlaylist(settings.resolvedBaseUrl, token, '', result.$1, result.$2);
+    ref.invalidate(remoteLibraryProvider);
+  }
+}
+
+class _DrawerActionBar extends StatelessWidget {
+  const _DrawerActionBar({
+    required this.count,
+    required this.searchExpanded,
+    required this.onToggleSearch,
+    required this.showPlaylistAction,
+    this.onAddPlaylist,
+  });
+
+  final int count;
+  final bool searchExpanded;
+  final VoidCallback onToggleSearch;
+  final bool showPlaylistAction;
+  final VoidCallback? onAddPlaylist;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final history = ref.watch(watchProvider).valueOrNull?.histories ?? const [];
-    final items = history.reversed.toList(growable: false);
-    return Stack(
-      children: [
-        items.isEmpty
-            ? Center(child: Text(l10n.noWatchHistory))
-            : VideoCardGrid(
-                videos: items.map((item) => VideoCard(id: item.videoCode, title: item.title, coverUrl: '')).toList(growable: false),
-                itemBuilder: (context, index, video, horizontal) {
-                  final item = items[index];
-                  final selected = _selected.contains(item.id);
-                  return Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      DecoratedBox(
-                        decoration: selected ? BoxDecoration(border: Border.all(color: Theme.of(context).colorScheme.primary, width: 2), borderRadius: BorderRadius.circular(12)) : const BoxDecoration(),
-                        child: VideoCardTile(video: video, horizontal: horizontal, onTap: _selectionMode ? () => _toggle(item.id) : null, onLongPress: () => _startSelection(item.id)),
-                      ),
-                      if (selected) const Positioned(top: 6, right: 6, child: Icon(Icons.check_circle, color: Colors.white)),
-                    ],
-                  );
-                },
-              ),
-        Positioned(right: 16, bottom: 16 + MediaQuery.paddingOf(context).bottom, child: FloatingActionButton(tooltip: _selectionMode ? l10n.delete : l10n.select, onPressed: _selectionMode ? (_selected.isEmpty ? _exitSelection : _deleteSelected) : _enterSelection, child: Icon(_selectionMode ? Icons.delete_outline : Icons.checklist_outlined))),
-      ],
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 8, 0),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(l10n.libraryItemsCount(count), style: theme.textTheme.labelLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+          ),
+          _PlaylistAddAction(visible: showPlaylistAction, onPressed: onAddPlaylist),
+          IconButton(
+            tooltip: searchExpanded ? l10n.close : l10n.searchLibrary,
+            isSelected: searchExpanded,
+            selectedIcon: const Icon(Icons.search_off_rounded),
+            icon: const Icon(Icons.search_rounded),
+            onPressed: onToggleSearch,
+          ),
+        ],
+      ),
     );
   }
+}
 
-  void _toggle(String id) => setState(() => _selected.contains(id) ? _selected.remove(id) : _selected.add(id));
-  void _enterSelection() => setState(() => _selectionMode = true);
-  void _startSelection(String id) => setState(() { _selectionMode = true; _selected.add(id); });
-  void _exitSelection() => setState(() { _selectionMode = false; _selected.clear(); });
+class _PlaylistAddAction extends StatelessWidget {
+  const _PlaylistAddAction({required this.visible, this.onPressed});
 
-  Future<void> _deleteSelected() async {
-    final confirmed = await showDialog<bool>(context: context, builder: (context) => AlertDialog(title: Text(AppLocalizations.of(context)!.delete), content: Text(AppLocalizations.of(context)!.selectedItems(_selected.length)), actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: Text(AppLocalizations.of(context)!.cancel)), FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(AppLocalizations.of(context)!.delete))]));
-    if (confirmed != true) return;
-    await ref.read(watchProvider.notifier).deleteHistories(_selected);
-    if (mounted) setState(() { _selectionMode = false; _selected.clear(); });
+  final bool visible;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0, end: visible ? 1 : 0),
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOutCubic,
+        builder: (context, value, child) => ClipRect(
+          child: Align(
+            alignment: Alignment.centerLeft,
+            widthFactor: value,
+            child: Opacity(
+              opacity: value,
+              child: Transform.scale(scale: .6 + .4 * value, child: child),
+            ),
+          ),
+        ),
+        child: IgnorePointer(
+          ignoring: !visible,
+          child: IconButton(
+            tooltip: AppLocalizations.of(context)!.newPlaylist,
+            onPressed: onPressed,
+            icon: const Icon(Icons.playlist_add_rounded),
+          ),
+        ),
+      );
+}
+
+class _LocalSubscriptions extends StatelessWidget {
+  const _LocalSubscriptions({required this.artists, required this.videos, required this.selectedArtist, required this.onSelected});
+
+  final List<SubscribedArtist> artists;
+  final Map<String, List<FollowingVideo>> videos;
+  final String? selectedArtist;
+  final ValueChanged<String?> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = artists.any((artist) => artist.id == selectedArtist) ? selectedArtist : null;
+    final allVideos = videos.values.expand((items) => items).fold(<String, FollowingVideo>{}, (items, video) => items..putIfAbsent(video.videoCode, () => video)).values.toList()
+      ..sort((a, b) => b.addedAt.compareTo(a.addedAt));
+    final visible = selected == null ? allVideos : videos[selected] ?? const <FollowingVideo>[];
+    return _SubscriptionsView(
+      artistHeader: artists.isEmpty
+          ? null
+          : GridView.builder(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+              scrollDirection: Axis.horizontal,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, mainAxisSpacing: 8, crossAxisSpacing: 8, mainAxisExtent: 72),
+              itemCount: artists.length,
+              itemBuilder: (context, index) {
+                final artist = artists[index];
+                return _SubscribedArtistCard(artist: artist, selected: artist.id == selected, onTap: () => onSelected(artist.id == selected ? null : artist.id), onLongPress: () => context.push('/search', extra: SearchRouteRequest(initialUrl: Uri(path: '/search', queryParameters: {'query': artist.name}).toString())));
+              },
+            ),
+      videos: visible,
+      message: AppLocalizations.of(context)!.noSubscriptionVideos,
+    );
   }
 }
 
@@ -269,12 +490,10 @@ class _RemoteSubscriptionsState extends State<_RemoteSubscriptions> {
   Widget build(BuildContext context) {
     final selected = widget.artists.any((artist) => artist.name == _artist) ? _artist : null;
     final videos = selected == null ? widget.videos : widget.videos.where((video) => video.artistName == selected).toList(growable: false);
-    return Column(
-      children: [
-        if (widget.artists.isNotEmpty)
-          SizedBox(
-            height: 252,
-            child: GridView.builder(
+    return _SubscriptionsView(
+      artistHeader: widget.artists.isEmpty
+          ? null
+          : GridView.builder(
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
               scrollDirection: Axis.horizontal,
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, mainAxisSpacing: 8, crossAxisSpacing: 8, mainAxisExtent: 72),
@@ -290,47 +509,62 @@ class _RemoteSubscriptionsState extends State<_RemoteSubscriptions> {
                 );
               },
             ),
-          ),
-        Expanded(child: _Videos(videos: videos, message: AppLocalizations.of(context)!.noSubscriptionVideos)),
-      ],
+      videos: videos,
+      message: AppLocalizations.of(context)!.noSubscriptionVideos,
     );
   }
 }
 
-class _LocalSubscriptions extends StatelessWidget {
-  const _LocalSubscriptions({required this.artists, required this.videos, required this.selectedArtist, required this.onSelected});
+class _SubscriptionsView extends StatefulWidget {
+  const _SubscriptionsView({required this.artistHeader, required this.videos, required this.message});
 
-  final List<SubscribedArtist> artists;
-  final Map<String, List<FollowingVideo>> videos;
-  final String? selectedArtist;
-  final ValueChanged<String?> onSelected;
+  final Widget? artistHeader;
+  final List<FollowingVideo> videos;
+  final String message;
 
   @override
-  Widget build(BuildContext context) {
-    final selected = artists.any((artist) => artist.id == selectedArtist) ? selectedArtist : null;
-    final allVideos = videos.values.expand((items) => items).fold(<String, FollowingVideo>{}, (items, video) => items..putIfAbsent(video.videoCode, () => video)).values.toList()
-      ..sort((a, b) => b.addedAt.compareTo(a.addedAt));
-    final visible = selected == null ? allVideos : videos[selected] ?? const <FollowingVideo>[];
-    return Column(
-      children: [
-        if (artists.isNotEmpty)
-          SizedBox(
-            height: 252,
-            child: GridView.builder(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-              scrollDirection: Axis.horizontal,
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, mainAxisSpacing: 8, crossAxisSpacing: 8, mainAxisExtent: 72),
-              itemCount: artists.length,
-              itemBuilder: (context, index) {
-                final artist = artists[index];
-                return _SubscribedArtistCard(artist: artist, selected: artist.id == selected, onTap: () => onSelected(artist.id == selected ? null : artist.id), onLongPress: () => context.push('/search', extra: SearchRouteRequest(initialUrl: Uri(path: '/search', queryParameters: {'query': artist.name}).toString())));
-              },
-            ),
-          ),
-        Expanded(child: _Videos(videos: visible, message: AppLocalizations.of(context)!.noSubscriptionVideos)),
-      ],
-    );
+  State<_SubscriptionsView> createState() => _SubscriptionsViewState();
+}
+
+class _SubscriptionsViewState extends State<_SubscriptionsView> {
+  static const _artistHeight = 252.0;
+
+  var _collapsed = false;
+
+  bool _onScroll(ScrollNotification notification) {
+    if (notification.depth != 0 || notification.metrics.axis != Axis.vertical) return false;
+    if (notification is ScrollUpdateNotification) {
+      final delta = notification.scrollDelta ?? 0;
+      if (delta > 2 && !_collapsed) {
+        setState(() => _collapsed = true);
+      } else if (delta < -2 && _collapsed) {
+        setState(() => _collapsed = false);
+      }
+    } else if (notification is ScrollStartNotification && notification.metrics.pixels <= 0) {
+      if (_collapsed) setState(() => _collapsed = false);
+    }
+    return false;
   }
+
+  @override
+  Widget build(BuildContext context) => NotificationListener<ScrollNotification>(
+        onNotification: _onScroll,
+        child: Column(
+          children: [
+            if (widget.artistHeader != null)
+              AnimatedSize(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                alignment: Alignment.topCenter,
+                clipBehavior: Clip.hardEdge,
+                child: _collapsed
+                    ? const SizedBox(width: double.infinity)
+                    : SizedBox(height: _artistHeight, child: widget.artistHeader),
+              ),
+            Expanded(child: _Videos(videos: widget.videos, message: widget.message)),
+          ],
+        ),
+      );
 }
 
 class _SubscribedArtistCard extends StatelessWidget {
@@ -346,9 +580,9 @@ class _SubscribedArtistCard extends StatelessWidget {
     final theme = Theme.of(context);
     return Material(
       color: selected ? theme.colorScheme.secondaryContainer : theme.colorScheme.surfaceContainerLow,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: selected ? BorderSide(color: theme.colorScheme.primary, width: 2) : BorderSide.none),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: selected ? BorderSide(color: theme.colorScheme.primary, width: 2) : BorderSide.none),
       child: InkWell(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(12),
         onTap: onTap,
         onLongPress: onLongPress,
         child: Padding(
@@ -375,36 +609,20 @@ class _LocalPlaylists extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
-    return Stack(
-      children: [
-        playlists.isEmpty
-            ? Center(child: Text(l10n.noPlaylists))
-            : GridView.builder(
-                padding: EdgeInsets.fromLTRB(12, 12, 12, 12 + MediaQuery.paddingOf(context).bottom),
-                itemCount: playlists.length,
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, crossAxisSpacing: 10, mainAxisSpacing: 10, childAspectRatio: 1.45),
-                itemBuilder: (context, index) {
-                  final playlist = playlists[index];
-                  return PlaylistCoverCard(
-                    playlist: playlist,
-                    onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => LocalPlaylistPage(playlistId: playlist.id))),
-                    onLongPress: () => _delete(context, ref, playlist),
-                  );
-                },
-              ),
-        Positioned(
-          right: 16,
-          bottom: 16 + MediaQuery.paddingOf(context).bottom,
-          child: FloatingActionButton(tooltip: l10n.newPlaylist, onPressed: () => _create(context, ref), child: const Icon(Icons.playlist_add)),
-        ),
-      ],
+    if (playlists.isEmpty) return LibraryEmptyState(icon: Icons.playlist_play_rounded, title: l10n.noPlaylists);
+    return GridView.builder(
+      padding: EdgeInsets.fromLTRB(12, 12, 12, 12 + MediaQuery.paddingOf(context).bottom),
+      itemCount: playlists.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, crossAxisSpacing: 10, mainAxisSpacing: 10, childAspectRatio: 1.45),
+      itemBuilder: (context, index) {
+        final playlist = playlists[index];
+        return PlaylistCoverCard(
+          playlist: playlist,
+          onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => LocalPlaylistPage(playlistId: playlist.id))),
+          onLongPress: () => _delete(context, ref, playlist),
+        );
+      },
     );
-  }
-
-  Future<void> _create(BuildContext context, WidgetRef ref) async {
-    final result = await showDialog<PlaylistEditorResult>(context: context, builder: (_) => const PlaylistEditorDialog());
-    if (result == null || result.title.isEmpty) return;
-    await ref.read(libraryProvider.notifier).createPlaylist(result.title, description: result.description);
   }
 
   Future<void> _delete(BuildContext context, WidgetRef ref, Playlist playlist) async {
@@ -422,42 +640,21 @@ class _LocalPlaylists extends ConsumerWidget {
   }
 }
 
-class _Playlists extends ConsumerWidget {
-  const _Playlists({required this.playlists, required this.token});
-  final List<Playlist> playlists;
-  final String? token;
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final l10n = AppLocalizations.of(context)!;
-    return Stack(
-      children: [
-        playlists.isEmpty
-            ? Center(child: Text(l10n.noPlaylists))
-            : GridView.builder(
-                padding: EdgeInsets.fromLTRB(12, 12, 12, 12 + MediaQuery.paddingOf(context).bottom),
-                itemCount: playlists.length,
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, crossAxisSpacing: 10, mainAxisSpacing: 10, childAspectRatio: 1.45),
-                itemBuilder: (context, index) => _PlaylistCard(playlist: playlists[index]),
-              ),
-        Positioned(
-          right: 16,
-          bottom: 16 + MediaQuery.paddingOf(context).bottom,
-          child: FloatingActionButton(
-            tooltip: l10n.newPlaylist,
-            onPressed: token == null ? null : () => _createPlaylist(context, ref, token!),
-            child: const Icon(Icons.playlist_add),
-          ),
-        ),
-      ],
-    );
-  }
+class _Playlists extends StatelessWidget {
+  const _Playlists({required this.playlists});
 
-  Future<void> _createPlaylist(BuildContext context, WidgetRef ref, String token) async {
-    final result = await showDialog<(String, String)>(context: context, builder: (_) => const _CreatePlaylistDialog());
-    if (result == null || result.$1.isEmpty) return;
-    final settings = await ref.read(settingsProvider.future);
-    await ref.read(han1meRepositoryProvider).createPlaylist(settings.resolvedBaseUrl, token, '', result.$1, result.$2);
-    ref.invalidate(remoteLibraryProvider);
+  final List<Playlist> playlists;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    if (playlists.isEmpty) return LibraryEmptyState(icon: Icons.playlist_play_rounded, title: l10n.noPlaylists);
+    return GridView.builder(
+      padding: EdgeInsets.fromLTRB(12, 12, 12, 12 + MediaQuery.paddingOf(context).bottom),
+      itemCount: playlists.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, crossAxisSpacing: 10, mainAxisSpacing: 10, childAspectRatio: 1.45),
+      itemBuilder: (context, index) => _PlaylistCard(playlist: playlists[index]),
+    );
   }
 }
 
@@ -490,92 +687,27 @@ class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
   }
 }
 
-class _RemoteHistory extends ConsumerStatefulWidget {
-  const _RemoteHistory({required this.videos, required this.token});
-
-  final List<FollowingVideo> videos;
-  final String? token;
-
-  @override
-  ConsumerState<_RemoteHistory> createState() => _RemoteHistoryState();
-}
-
-class _RemoteHistoryState extends ConsumerState<_RemoteHistory> {
-  final _selected = <String>{};
-  var _selectionMode = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return Stack(
-      children: [
-        widget.videos.isEmpty
-            ? Center(child: Text(l10n.noWatchHistory))
-            : VideoCardGrid(
-                videos: widget.videos.map(_videoCard).toList(growable: false),
-                itemBuilder: (context, index, video, horizontal) {
-                  final selected = _selected.contains(video.id);
-                  return Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      DecoratedBox(
-                        decoration: selected ? BoxDecoration(border: Border.all(color: Theme.of(context).colorScheme.primary, width: 2), borderRadius: BorderRadius.circular(12)) : const BoxDecoration(),
-                        child: VideoCardTile(video: video, horizontal: horizontal, onTap: _selectionMode ? () => _toggle(video.id) : null, onLongPress: () => _startSelection(video.id)),
-                      ),
-                      if (selected) const Positioned(top: 6, right: 6, child: Icon(Icons.check_circle, color: Colors.white)),
-                    ],
-                  );
-                },
-              ),
-        Positioned(
-          right: 16,
-          bottom: 16 + MediaQuery.paddingOf(context).bottom,
-          child: FloatingActionButton(tooltip: _selectionMode ? l10n.delete : l10n.select, onPressed: widget.token == null ? null : (_selectionMode ? (_selected.isEmpty ? _exitSelection : _deleteSelected) : _enterSelection), child: Icon(_selectionMode ? Icons.delete_outline : Icons.checklist_outlined)),
-        ),
-      ],
-    );
-  }
-
-  void _toggle(String id) => setState(() => _selected.contains(id) ? _selected.remove(id) : _selected.add(id));
-  void _enterSelection() => setState(() => _selectionMode = true);
-  void _startSelection(String id) => setState(() { _selectionMode = true; _selected.add(id); });
-  void _exitSelection() => setState(() { _selectionMode = false; _selected.clear(); });
-
-  Future<void> _deleteSelected() async {
-    final token = widget.token;
-    if (token == null) return;
-    final confirmed = await showDialog<bool>(context: context, builder: (context) => AlertDialog(title: Text(AppLocalizations.of(context)!.delete), content: Text(AppLocalizations.of(context)!.selectedItems(_selected.length)), actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: Text(AppLocalizations.of(context)!.cancel)), FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(AppLocalizations.of(context)!.delete))]));
-    if (confirmed != true) return;
-    final settings = await ref.read(settingsProvider.future);
-    for (final id in _selected) {
-      await ref.read(han1meRepositoryProvider).deleteHistory(settings.resolvedBaseUrl, token, id);
-    }
-    if (!mounted) return;
-    setState(() { _selectionMode = false; _selected.clear(); });
-    ref.invalidate(remoteLibraryProvider);
-  }
-}
-
-class _PlaylistCard extends ConsumerStatefulWidget {
+class _PlaylistCard extends ConsumerWidget {
   const _PlaylistCard({required this.playlist});
-  final Playlist playlist;
-  @override
-  ConsumerState<_PlaylistCard> createState() => _PlaylistCardState();
-}
 
-class _PlaylistCardState extends ConsumerState<_PlaylistCard> {
-  Future<void> _delete() async {
+  final Playlist playlist;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => PlaylistCoverCard(
+        playlist: playlist,
+        onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => RemotePlaylistPage(playlist: playlist))),
+        onLongPress: () => _delete(context, ref),
+      );
+
+  Future<void> _delete(BuildContext context, WidgetRef ref) async {
     final l10n = AppLocalizations.of(context)!;
-    final confirmed = await showDialog<bool>(context: context, builder: (context) => AlertDialog(title: Text(l10n.deletePlaylist), content: Text(l10n.deletePlaylistConfirmation(widget.playlist.title)), actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: Text(l10n.cancel)), FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(l10n.delete))]));
+    final confirmed = await showDialog<bool>(context: context, builder: (context) => AlertDialog(title: Text(l10n.deletePlaylist), content: Text(l10n.deletePlaylistConfirmation(playlist.title)), actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: Text(l10n.cancel)), FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(l10n.delete))]));
     final account = ref.read(accountProvider).valueOrNull;
     if (confirmed != true || account?.csrfToken == null) return;
     final settings = await ref.read(settingsProvider.future);
-    await ref.read(han1meRepositoryProvider).deletePlaylist(settings.resolvedBaseUrl, account!.csrfToken!, widget.playlist.id);
+    await ref.read(han1meRepositoryProvider).deletePlaylist(settings.resolvedBaseUrl, account!.csrfToken!, playlist.id);
     ref.invalidate(remoteLibraryProvider);
   }
-
-  @override
-  Widget build(BuildContext context) => PlaylistCoverCard(playlist: widget.playlist, onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => RemotePlaylistPage(playlist: widget.playlist))), onLongPress: _delete);
 }
 
 class _Videos extends StatelessWidget {
@@ -586,7 +718,7 @@ class _Videos extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (videos.isEmpty) return Center(child: Text(message, style: Theme.of(context).textTheme.bodyLarge));
+    if (videos.isEmpty) return LibraryEmptyState(icon: Icons.subscriptions_outlined, title: message);
     return VideoCardGrid(videos: videos.map(_videoCard).toList(growable: false));
   }
 }
@@ -609,33 +741,55 @@ class _SelectableVideosState extends ConsumerState<_SelectableVideos> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return Stack(
+    final colors = Theme.of(context).colorScheme;
+    return Column(
       children: [
-        widget.videos.isEmpty
-            ? Center(child: Text(widget.emptyMessage, style: Theme.of(context).textTheme.bodyLarge))
-            : VideoCardGrid(
-                videos: widget.videos.map(_videoCard).toList(growable: false),
-                itemBuilder: (context, index, video, horizontal) {
-                  final selected = _selected.contains(video.id);
-                  return Stack(
-                    fit: StackFit.expand,
+        Expanded(
+          child: widget.videos.isEmpty
+              ? LibraryEmptyState(icon: Icons.bookmark_border_rounded, title: widget.emptyMessage)
+              : VideoCardGrid(
+                  videos: widget.videos.map(_videoCard).toList(growable: false),
+                  itemBuilder: (context, index, video, horizontal) {
+                    final selected = _selected.contains(video.id);
+                    return Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        DecoratedBox(
+                          decoration: selected ? BoxDecoration(border: Border.all(color: colors.primary, width: 2), borderRadius: BorderRadius.circular(12)) : const BoxDecoration(),
+                          child: VideoCardTile(video: video, horizontal: horizontal, onTap: _selectionMode ? () => _toggle(video.id) : null, onLongPress: () => _startSelection(video.id)),
+                        ),
+                        if (selected) const Positioned(top: 6, right: 6, child: Icon(Icons.check_circle, color: Colors.white)),
+                      ],
+                    );
+                  },
+                ),
+        ),
+        if (_selectionMode)
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+              child: Material(
+                color: colors.surfaceContainerHigh,
+                borderRadius: BorderRadius.circular(20),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  child: Row(
                     children: [
-                      DecoratedBox(
-                        decoration: selected ? BoxDecoration(border: Border.all(color: Theme.of(context).colorScheme.primary, width: 2), borderRadius: BorderRadius.circular(12)) : const BoxDecoration(),
-                        child: VideoCardTile(video: video, horizontal: horizontal, onTap: _selectionMode ? () => _toggle(video.id) : null, onLongPress: () => _startSelection(video.id)),
-                      ),
-                      if (selected) const Positioned(top: 6, right: 6, child: Icon(Icons.check_circle, color: Colors.white)),
+                      Expanded(child: Text(l10n.selectedItems(_selected.length))),
+                      TextButton(onPressed: _exitSelection, child: Text(l10n.cancel)),
+                      FilledButton(onPressed: _selected.isEmpty ? null : _deleteSelected, child: Text(l10n.delete)),
                     ],
-                  );
-                },
+                  ),
+                ),
               ),
-        Positioned(right: 16, bottom: 16 + MediaQuery.paddingOf(context).bottom, child: FloatingActionButton(tooltip: _selectionMode ? l10n.delete : l10n.select, onPressed: _selectionMode ? (_selected.isEmpty ? _exitSelection : _deleteSelected) : _enterSelection, child: Icon(_selectionMode ? Icons.delete_outline : Icons.checklist_outlined))),
+            ),
+          ),
       ],
     );
   }
 
   void _toggle(String id) => setState(() => _selected.contains(id) ? _selected.remove(id) : _selected.add(id));
-  void _enterSelection() => setState(() => _selectionMode = true);
   void _startSelection(String id) => setState(() { _selectionMode = true; _selected.add(id); });
   void _exitSelection() => setState(() { _selectionMode = false; _selected.clear(); });
 
@@ -650,9 +804,44 @@ class _SelectableVideosState extends ConsumerState<_SelectableVideos> {
 
 VideoCard _videoCard(FollowingVideo video) => VideoCard(id: video.videoCode, title: video.title, coverUrl: video.coverUrl ?? '', artist: video.artistName, duration: video.duration, views: video.views, rating: video.rating, uploadTime: video.uploadTime);
 
-List<Tab> _tabs(AppLocalizations l10n, List<String> order) => [
-      for (final key in order) Tab(text: _tabTitle(l10n, key)),
-    ];
+List<LibraryTabEntry> _tabEntries(AppLocalizations l10n, List<String> order) => [for (final key in order) LibraryTabEntry(key: key, label: _tabTitle(l10n, key))];
+
+String _tabTitle(AppLocalizations l10n, String key) => switch (key) {
+      'watch-later' => l10n.watchLater,
+      'favorites' => l10n.favoriteVideos,
+      'playlists' => l10n.playlists,
+      'subscriptions' => l10n.subscriptions,
+      'history' => l10n.watchHistory,
+      _ => l10n.watchLater,
+    };
+
+List<FollowingVideo> _filterVideos(Iterable<FollowingVideo> videos, String query) {
+  final value = query.trim().toLowerCase();
+  if (value.isEmpty) return videos.toList(growable: false);
+  return videos.where((video) => video.title.toLowerCase().contains(value) || (video.artistName ?? '').toLowerCase().contains(value)).toList(growable: false);
+}
+
+List<Playlist> _filterPlaylists(List<Playlist> playlists, String query) {
+  final value = query.trim().toLowerCase();
+  if (value.isEmpty) return playlists;
+  return playlists.where((playlist) => playlist.title.toLowerCase().contains(value) || (playlist.description ?? '').toLowerCase().contains(value)).toList(growable: false);
+}
+
+List<SubscribedArtist> _filterArtists(List<SubscribedArtist> artists, String query) {
+  final value = query.trim().toLowerCase();
+  if (value.isEmpty) return artists;
+  return artists.where((artist) => artist.name.toLowerCase().contains(value)).toList(growable: false);
+}
+
+Map<String, List<FollowingVideo>> _filterSubscriptionVideos(Map<String, List<FollowingVideo>> videos, String query) => {
+      for (final entry in videos.entries) entry.key: _filterVideos(entry.value, query),
+    };
+
+List<FollowingVideo> _uniqueVideos(Map<String, List<FollowingVideo>> videos) => videos.values
+    .expand((items) => items)
+    .fold(<String, FollowingVideo>{}, (items, video) => items..putIfAbsent(video.videoCode, () => video))
+    .values
+    .toList(growable: false);
 
 int _libraryTabIndex(List<String> order, String key) {
   final index = order.indexOf(key);
@@ -660,6 +849,4 @@ int _libraryTabIndex(List<String> order, String key) {
   return index.clamp(0, order.length - 1).toInt();
 }
 
-String _normaliseLibraryTabKey(List<String> order, String key) {
-  return order.contains(key) ? key : 'watch-later';
-}
+String _normaliseLibraryTabKey(List<String> order, String key) => order.contains(key) ? key : 'watch-later';

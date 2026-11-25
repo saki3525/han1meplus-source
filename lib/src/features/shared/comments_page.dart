@@ -22,8 +22,9 @@ final contentCommentsProvider = FutureProvider.autoDispose.family<CommentPage, (
   final timer = Timer(const Duration(minutes: 10), link.close);
   ref.onDispose(timer.cancel);
   ref.watch(accountProvider);
-  final settings = await ref.watch(settingsProvider.future);
-  return ref.watch(han1meRepositoryProvider).comments(settings.resolvedBaseUrl, target.id, type: target.type);
+  final cachedBaseUrl = ref.watch(settingsProvider.select((value) => value.valueOrNull?.resolvedBaseUrl));
+  final baseUrl = cachedBaseUrl ?? (await ref.read(settingsProvider.future)).resolvedBaseUrl;
+  return ref.watch(han1meRepositoryProvider).comments(baseUrl, target.id, type: target.type);
 });
 
 class CommentsPage extends ConsumerWidget {

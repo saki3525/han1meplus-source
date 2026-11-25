@@ -167,11 +167,30 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     super.dispose();
   }
 
+  Widget _webView(WebViewEnvironment? environment, String baseUrl) => InAppWebView(
+        webViewEnvironment: environment,
+        initialSettings: InAppWebViewSettings(
+          javaScriptEnabled: true,
+          domStorageEnabled: true,
+          thirdPartyCookiesEnabled: true,
+          userAgent: Han1meApi.userAgent,
+        ),
+        onWebViewCreated: (controller) async {
+          _controller = controller;
+          await WebViewCookieBridge.clear();
+          await ref.read(han1meHttpClientProvider).clearWebViewCookies();
+          if (!mounted) return;
+          await controller.loadUrl(urlRequest: URLRequest(url: WebUri(siteEndpointUrl(baseUrl, 'login'))));
+          if (!mounted) return;
+          _startPolling();
+        },
+      );
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final baseUrl = ref.watch(settingsProvider).valueOrNull?.resolvedBaseUrl ?? 'https://hanime1.me';
-    final webViewEnvironment = ref.watch(webViewEnvironmentProvider).valueOrNull;
+    final environment = ref.watch(webViewEnvironmentProvider);
     return Scaffold(
       resizeToAvoidBottomInset: true,
       appBar: AppBar(
@@ -191,23 +210,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          InAppWebView(
-            webViewEnvironment: webViewEnvironment,
-            initialSettings: InAppWebViewSettings(
-              javaScriptEnabled: true,
-              domStorageEnabled: true,
-              thirdPartyCookiesEnabled: true,
-              userAgent: Han1meApi.userAgent,
-            ),
-            onWebViewCreated: (controller) async {
-              _controller = controller;
-              await WebViewCookieBridge.clear();
-              await ref.read(han1meHttpClientProvider).clearWebViewCookies();
-              if (!mounted) return;
-              await controller.loadUrl(urlRequest: URLRequest(url: WebUri(siteEndpointUrl(baseUrl, 'login'))));
-              if (!mounted) return;
-              _startPolling();
-            },
+          environment.when(
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (_, __) => _webView(null, baseUrl),
+            data: (environment) => _webView(environment, baseUrl),
           ),
           if (_error != null)
             Positioned(

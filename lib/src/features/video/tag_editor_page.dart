@@ -68,6 +68,20 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
     } catch (_) {}
   }
 
+  Widget _webView(WebViewEnvironment? environment) => InAppWebView(
+        initialUrlRequest: URLRequest(url: WebUri(_url!)),
+        webViewEnvironment: environment,
+        initialSettings: InAppWebViewSettings(javaScriptEnabled: true, domStorageEnabled: true, thirdPartyCookiesEnabled: true, userAgent: Han1meApi.userAgent),
+        onLoadStart: (controller, url) {
+          _opened = false;
+          _url = url?.toString() ?? _url;
+        },
+        onLoadStop: (controller, url) async {
+          _url = url?.toString() ?? _url;
+          await _prepare(controller);
+        },
+      );
+
   @override
   Widget build(BuildContext context) {
     final settings = ref.watch(settingsProvider).valueOrNull;
@@ -87,18 +101,10 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
       },
       child: Scaffold(
         appBar: AppBar(title: Text(title)),
-        body: InAppWebView(
-          initialUrlRequest: URLRequest(url: WebUri(_url!)),
-          webViewEnvironment: ref.watch(webViewEnvironmentProvider).valueOrNull,
-          initialSettings: InAppWebViewSettings(javaScriptEnabled: true, domStorageEnabled: true, thirdPartyCookiesEnabled: true, userAgent: Han1meApi.userAgent),
-          onLoadStart: (controller, url) {
-            _opened = false;
-            _url = url?.toString() ?? _url;
-          },
-          onLoadStop: (controller, url) async {
-            _url = url?.toString() ?? _url;
-            await _prepare(controller);
-          },
+        body: ref.watch(webViewEnvironmentProvider).when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (_, __) => _webView(null),
+          data: (environment) => _webView(environment),
         ),
       ),
     );

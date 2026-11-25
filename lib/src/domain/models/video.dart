@@ -187,9 +187,11 @@ class Comment {
 }
 
 class CommentPage {
-  const CommentPage({required this.comments, this.totalCount, this.csrfToken, this.currentUserId});
+  const CommentPage({required this.comments, this.totalCount, this.csrfToken, this.currentUserId, this.hasMore = false, this.nextOffset});
   final List<Comment> comments;
   final String? totalCount;
   final String? csrfToken;
   final String? currentUserId;
+  final bool hasMore;
+  final int? nextOffset;
 }

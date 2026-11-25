@@ -263,9 +263,9 @@
   "watchLater": "稍後觀看",
   "favoriteVideos": "喜歡的影片",
   "subscriptions": "我的訂閱",
-  "noWatchLater": "暫無稍後觀看影片",
-  "noFavoriteVideos": "暫無喜歡的影片",
-  "noSubscriptionVideos": "暫無訂閱影片",
+  "noWatchLater": "還沒有想看的影片",
+  "noFavoriteVideos": "還沒有收藏的影片",
+  "noSubscriptionVideos": "還沒有訂閱的影片",
   "selectedItems": "已選 {count} 項",
   "@selectedItems": {
     "placeholders": {
@@ -465,7 +465,7 @@
   "preview": "預覽",
   "watchHistory": "觀看記錄",
   "playlists": "播放清單",
-  "noPlaylists": "暫無播放清單",
+  "noPlaylists": "還沒有播放清單",
   "deletePlaylist": "刪除播放清單",
   "deletePlaylistConfirmation": "確定刪除「{title}」嗎？",
   "@deletePlaylistConfirmation": {
@@ -660,8 +660,8 @@
   "newCategory": "新分類",
   "navigationDrawer": "使用導覽抽屜",
   "navigationDrawerDescription": "使用抽屜取代底部導覽列",
-  "liquidGlassBottomBar": "懸浮液態玻璃底欄",
-  "liquidGlassBottomBarDescription": "使用懸浮的液態玻璃底部導覽列",
+  "floatingNavigationBar": "懸浮導覽列",
+  "floatingNavigationBarDescription": "使用懸浮導覽列作為底部導覽列",
   "home": "首頁",
   "quality": "畫質",
   "anime4k": "Anime4K",
@@ -899,5 +899,27 @@
   "ech": "ECH 加密直連",
   "echSwitchDescription": "使用原生 ECH 通道傳送站點請求",
   "echDisabled": "ECH 已關閉，請求使用一般通道",
-  "finishedVerification": "我已完成驗證"
+  "finishedVerification": "我已完成驗證",
+  "cloudflareVerificationIncomplete": "驗證尚未完成，請先完成 Cloudflare 驗證。",
+  "historyRecords": "歷史記錄",
+  "watchFootprint": "觀看足跡",
+  "watchedVideos": "看過影片",
+  "watchSessions": "觀看次數",
+  "viewWatchHistory": "查看觀看記錄",
+  "manageOfflineContent": "管理離線內容",
+  "offlineDownloads": "離線下載",
+  "searchLibrary": "搜尋收藏",
+  "clearSearch": "清除搜尋",
+  "libraryItemsCount": "{count} 部",
+  "@libraryItemsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "done": "完成",
+  "searchWatchHistory": "搜尋觀看記錄",
+  "clearAllHistory": "清空全部觀看記錄",
+  "clearAllHistoryConfirmation": "將刪除所有觀看記錄。此操作無法復原。"
 }

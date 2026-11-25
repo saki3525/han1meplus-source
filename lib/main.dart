@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import 'src/app.dart';
 import 'src/core/media_player_initializer.dart';
@@ -18,9 +17,6 @@ import 'src/features/settings/settings_controller.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final loadedSettings = await _loadSettings();
-  try {
-    await LiquidGlassWidgets.initialize();
-  } catch (_) {}
   try {
     await PlaybackSpeedPolicy.initialize();
   } catch (_) {}
@@ -39,11 +35,9 @@ Future<void> main() async {
     await bootstrapDesktopNetwork(settings).timeout(const Duration(seconds: 8));
   } catch (_) {}
   runApp(
-    LiquidGlassWidgets.wrap(
-      child: ProviderScope(
-        overrides: [settingsProvider.overrideWith(() => SettingsController(settings))],
-        child: const Han1meApp(),
-      ),
+    ProviderScope(
+      overrides: [settingsProvider.overrideWith(() => SettingsController(settings))],
+      child: const Han1meApp(),
     ),
   );
   unawaited(_postLaunch());

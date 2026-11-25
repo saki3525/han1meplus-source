@@ -18,8 +18,9 @@ final videoTranslationProvider = AsyncNotifierProvider.autoDispose.family<VideoT
 
 final videoDetailProvider = FutureProvider.autoDispose.family<VideoDetail, String>((ref, id) async {
   ref.watch(accountProvider);
-  final settings = await ref.watch(settingsProvider.future);
-  return ref.watch(han1meRepositoryProvider).video(settings.resolvedBaseUrl, id);
+  final cachedBaseUrl = ref.watch(settingsProvider.select((value) => value.valueOrNull?.resolvedBaseUrl));
+  final baseUrl = cachedBaseUrl ?? (await ref.read(settingsProvider.future)).resolvedBaseUrl;
+  return ref.watch(han1meRepositoryProvider).video(baseUrl, id);
 });
 
 class VideoTranslationController extends AutoDisposeFamilyAsyncNotifier<VideoTranslation?, String> {

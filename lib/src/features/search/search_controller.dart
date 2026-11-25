@@ -62,28 +62,83 @@ class SearchHistoryController extends AsyncNotifier<List<SearchQuery>> {
     _write = _write.catchError((_) {}).then((_) => _repository.save(next));
     await _write;
   }
+
+  Future<void> clear() async {
+    state = const AsyncData(<SearchQuery>[]);
+    _write = _write.catchError((_) {}).then((_) => _repository.save(const <SearchQuery>[]));
+    await _write;
+  }
 }
 
-final searchResultsProvider = FutureProvider.autoDispose.family<SearchResult, SearchRouteRequest>((ref, request) async {
-  ref.watch(accountProvider);
-  final settings = await ref.watch(settingsProvider.future);
-  final catalog = await ref.watch(searchOptionCatalogProvider.future);
-  final query = ref.watch(searchQueryProvider(request));
-  final result = await ref.watch(han1meRepositoryProvider).search(
-        baseUrl: settings.resolvedBaseUrl,
-        query: query.text,
-        genre: catalog.genres.canonical(query.genre),
-        sort: catalog.sorts.canonical(query.sort),
-        date: catalog.releaseDates.canonical(query.date),
-        duration: catalog.durations.canonical(query.duration),
-        tags: query.tags.map(catalog.canonicalTag).toList(growable: false),
-        broad: query.broad,
-        type: query.type,
-        page: query.page,
+class SearchFeed {
+  const SearchFeed({
+    this.items = const [],
+    this.page = 1,
+    this.totalPages = 1,
+    this.loadingMore = false,
+  });
+
+  final List<VideoCard> items;
+  final int page;
+  final int totalPages;
+  final bool loadingMore;
+
+  bool get hasMore => page < totalPages;
+
+  SearchFeed copyWith({List<VideoCard>? items, int? page, int? totalPages, bool? loadingMore}) => SearchFeed(
+        items: items ?? this.items,
+        page: page ?? this.page,
+        totalPages: totalPages ?? this.totalPages,
+        loadingMore: loadingMore ?? this.loadingMore,
       );
-  if (!settings.applyRecommendationFiltersToSearch) return result;
-  return SearchResult(items: result.items.where((video) => _visible(video, settings)).toList(), page: result.page, totalPages: result.totalPages);
-});
+}
+
+final searchFeedProvider = AsyncNotifierProvider.autoDispose.family<SearchFeedController, SearchFeed, SearchRouteRequest>(SearchFeedController.new);
+
+class SearchFeedController extends AutoDisposeFamilyAsyncNotifier<SearchFeed, SearchRouteRequest> {
+  @override
+  Future<SearchFeed> build(SearchRouteRequest arg) async {
+    ref.watch(accountProvider);
+    final query = ref.watch(searchQueryProvider(arg));
+    if (!query.hasSearchCriteria) return const SearchFeed();
+    final result = await _fetch(query, 1);
+    return SearchFeed(items: result.items, page: result.page, totalPages: result.totalPages);
+  }
+
+  Future<void> loadMore() async {
+    final current = state.valueOrNull;
+    if (current == null || current.loadingMore || !current.hasMore) return;
+    state = AsyncData(current.copyWith(loadingMore: true));
+    try {
+      final query = ref.read(searchQueryProvider(arg));
+      final result = await _fetch(query, current.page + 1);
+      final seen = current.items.map((item) => item.id).toSet();
+      final items = [...current.items, ...result.items.where((item) => !seen.contains(item.id))];
+      state = AsyncData(SearchFeed(items: items, page: result.page, totalPages: result.totalPages));
+    } catch (_) {
+      state = AsyncData(current.copyWith(loadingMore: false));
+    }
+  }
+
+  Future<SearchResult> _fetch(SearchQuery query, int page) async {
+    final settings = await ref.read(settingsProvider.future);
+    final catalog = await ref.read(searchOptionCatalogProvider.future);
+    final result = await ref.read(han1meRepositoryProvider).search(
+          baseUrl: settings.resolvedBaseUrl,
+          query: query.text,
+          genre: catalog.genres.canonical(query.genre),
+          sort: catalog.sorts.canonical(query.sort),
+          date: catalog.releaseDates.canonical(query.date),
+          duration: catalog.durations.canonical(query.duration),
+          tags: query.tags.map(catalog.canonicalTag).toList(growable: false),
+          broad: query.broad,
+          type: query.type,
+          page: page,
+        );
+    if (!settings.applyRecommendationFiltersToSearch) return result;
+    return SearchResult(items: result.items.where((video) => _visible(video, settings)).toList(), page: result.page, totalPages: result.totalPages);
+  }
+}
 
 bool _visible(VideoCard video, AppSettings settings) {
   if (settings.blockedVideoTitleKeywords.any((keyword) => video.title.toLowerCase().contains(keyword.toLowerCase()))) return false;

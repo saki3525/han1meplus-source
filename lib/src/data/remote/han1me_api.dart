@@ -385,64 +385,91 @@ class Han1meApi {
     return (await video(baseUrl, id)).related;
   }
 
-  Future<CommentPage> comments(String baseUrl, String videoId, {String type = 'video'}) async {
+  Future<CommentPage> comments(String baseUrl, String videoId, {String type = 'video', int? offset}) async {
     final base = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
-    final response = await _http.get(Uri.parse('$base/loadComment').replace(queryParameters: {'type': type, 'id': videoId}).toString());
+    final response = await _http.get(Uri.parse('$base/loadComment').replace(queryParameters: {'type': type, 'id': videoId, if (offset != null) 'offset': '$offset'}).toString());
     if (isCloudflareResponse(response.statusCode, response.headers, response.body)) throw CloudflareChallengeException('$base/watch?v=$videoId');
     if (response.statusCode >= 400) {
-       throw DioException(requestOptions: RequestOptions(path: '$base/loadComment'), message: 'Comment request failed: HTTP ${response.statusCode}');
+      throw DioException(requestOptions: RequestOptions(path: '$base/loadComment'), message: 'Comment request failed: HTTP ${response.statusCode}');
     }
-    var body = response.body;
+    Map<String, dynamic>? json;
     try {
-      final decoded = jsonDecode(body);
-      if (decoded is Map && decoded['comments'] is String) body = decoded['comments'] as String;
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map) json = Map<String, dynamic>.from(decoded);
     } catch (_) {}
+    if (offset != null || json?['items_html'] is String) {
+      final document = html_parser.parse(json?['items_html'] as String? ?? response.body);
+      final comments = document.querySelectorAll('div.comment-item-block').map((element) => _parseCommentBlock(base, element)).whereType<Comment>().toList(growable: false);
+      return CommentPage(
+        comments: comments,
+        hasMore: json?['has_more'] == true,
+        nextOffset: (json?['next_offset'] as num?)?.toInt(),
+      );
+    }
+    final body = json?['comments'] as String? ?? response.body;
     final document = html_parser.parse(body);
     final root = document.querySelector('#comment-start');
     final csrfToken = document.querySelector('input[name="_token"]')?.attributes['value'];
     final currentUserId = document.querySelector('input[name="comment-user-id"]')?.attributes['value'];
-    final children = root?.children ?? const <dom.Element>[];
     final comments = <Comment>[];
-
-    for (var index = 0; index < children.length; index += 4) {
-      final group = children.skip(index).take(4).toList();
-      if (group.isEmpty) continue;
-      final wrapper = dom.Element.tag('div')
-        ..nodes.addAll(group.map((element) => element.clone(true)));
-      final fields = wrapper.querySelectorAll('.comment-index-text');
-      if (fields.length < 2) continue;
-
-      final username = fields.first.querySelector('a')?.text.trim() ?? '';
-      final content = fields[1].text.trim();
-      if (username.isEmpty || content.isEmpty) continue;
-
-      final avatarUrl = _absolute(base, wrapper.querySelector('img')?.attributes['src']);
-      final timeAgo = fields.first.querySelector('span')?.text.trim();
-      final likes = wrapper.querySelectorAll('#comment-like-form-wrapper span[style]');
-      final replyWrapper = wrapper.querySelector('div[id^="reply-section-wrapper"]');
-      final replyButtonText = wrapper.querySelectorAll('div.load-replies-btn').map((item) => item.text).join(' ');
-      final replyCount = int.tryParse(RegExp(r'\d+').firstMatch(replyButtonText)?.group(0) ?? '');
-
-      comments.add(Comment(
-        id: replyWrapper?.id.split('-').last ?? '${username}_${_javaStringHash(content)}',
-        username: username,
-        content: content,
-        avatarUrl: avatarUrl.isEmpty ? null : avatarUrl,
-        timeAgo: timeAgo == null || timeAgo.isEmpty ? null : timeAgo,
-        likeCount: likes.length > 1 ? likes[1].text.trim() : null,
-        replyCount: replyCount,
-        hasMoreReplies: wrapper.querySelector('div[class^="load-replies-btn"]') != null,
-        foreignId: wrapper.querySelector('#foreign_id')?.attributes['value'],
-        reportableId: wrapper.querySelector('span.report-btn')?.attributes['data-reportable-id'],
-        reportableType: wrapper.querySelector('span.report-btn')?.attributes['data-reportable-type'],
-        likeUserId: wrapper.querySelector('input[name="comment-like-user-id"]')?.attributes['value'],
-        likesCount: int.tryParse(wrapper.querySelector('input[name="comment-likes-count"]')?.attributes['value'] ?? ''),
-        likesSum: int.tryParse(wrapper.querySelector('input[name="comment-likes-sum"]')?.attributes['value'] ?? ''),
-        liked: wrapper.querySelector('input[name="like-comment-status"]')?.attributes['value'] == '1',
-        disliked: wrapper.querySelector('input[name="unlike-comment-status"]')?.attributes['value'] == '1',
-      ));
+    final blocks = root?.querySelectorAll('div.comment-item-block') ?? const <dom.Element>[];
+    if (blocks.isNotEmpty) {
+      for (final block in blocks) {
+        final comment = _parseCommentBlock(base, block);
+        if (comment != null) comments.add(comment);
+      }
+    } else {
+      final children = root?.children ?? const <dom.Element>[];
+      for (var index = 0; index < children.length; index += 4) {
+        final wrapper = dom.Element.tag('div')
+          ..nodes.addAll(children.skip(index).take(4).map((element) => element.clone(true)));
+        final comment = _parseCommentBlock(base, wrapper);
+        if (comment != null) comments.add(comment);
+      }
     }
-    return CommentPage(comments: comments, csrfToken: csrfToken, currentUserId: currentUserId);
+    final sentinel = document.querySelector('#comment-scroll-sentinel');
+    return CommentPage(
+      comments: comments,
+      csrfToken: csrfToken,
+      currentUserId: currentUserId,
+      hasMore: sentinel?.attributes['data-has-more'] == '1',
+      nextOffset: int.tryParse(sentinel?.attributes['data-next-offset'] ?? ''),
+    );
+  }
+
+  Comment? _parseCommentBlock(String baseUrl, dom.Element block) {
+    final fields = block.querySelectorAll('.comment-index-text');
+    if (fields.length < 2) return null;
+    final username = fields.first.querySelector('a')?.text.trim() ?? '';
+    final content = fields[1].text.trim();
+    if (username.isEmpty || content.isEmpty) return null;
+    final avatarUrl = _absolute(baseUrl, block.querySelector('img')?.attributes['src']);
+    final timeAgo = fields.first.querySelector('span')?.text.trim();
+    final likeSpans = block.querySelectorAll('#comment-like-form-wrapper span[style]');
+    final likeCount = likeSpans.length > 1 ? likeSpans[1].text.trim() : (likeSpans.isNotEmpty ? likeSpans.last.text.trim() : null);
+    final replyWrapper = block.querySelector('div[id^="reply-section-wrapper"]');
+    final replyButtonText = block.querySelectorAll('div.load-replies-btn').map((item) => item.text).join(' ');
+    final replyCount = int.tryParse(RegExp(r'\d+').firstMatch(replyButtonText)?.group(0) ?? '');
+    final blockId = (block.attributes['data-comment-id'] ?? '').trim();
+    final id = blockId.isNotEmpty ? blockId : (replyWrapper?.id.split('-').last ?? '${username}_${_javaStringHash(content)}');
+    return Comment(
+      id: id,
+      username: username,
+      content: content,
+      avatarUrl: avatarUrl.isEmpty ? null : avatarUrl,
+      timeAgo: timeAgo == null || timeAgo.isEmpty ? null : timeAgo,
+      likeCount: likeCount,
+      replyCount: replyCount,
+      hasMoreReplies: block.querySelector('div[class^="load-replies-btn"]') != null,
+      foreignId: block.querySelector('#foreign_id')?.attributes['value'],
+      reportableId: block.querySelector('span.report-btn')?.attributes['data-reportable-id'],
+      reportableType: block.querySelector('span.report-btn')?.attributes['data-reportable-type'],
+      likeUserId: block.querySelector('input[name="comment-like-user-id"]')?.attributes['value'],
+      likesCount: int.tryParse(block.querySelector('input[name="comment-likes-count"]')?.attributes['value'] ?? ''),
+      likesSum: int.tryParse(block.querySelector('input[name="comment-likes-sum"]')?.attributes['value'] ?? ''),
+      liked: block.querySelector('input[name="like-comment-status"]')?.attributes['value'] == '1',
+      disliked: block.querySelector('input[name="unlike-comment-status"]')?.attributes['value'] == '1',
+    );
   }
 
   Future<CommentPage> replies(String baseUrl, String commentId) async {
@@ -450,22 +477,52 @@ class Han1meApi {
     if (isCloudflareResponse(response.statusCode, response.headers, response.body)) throw CloudflareChallengeException(siteEndpointUrl(baseUrl, 'loadReplies'));
     final decoded = jsonDecode(response.body) as Map;
     final document = html_parser.parse(decoded['replies'] as String? ?? '');
-    final root = document.querySelector('div[id^="reply-start"]');
     final comments = <Comment>[];
+    final root = document.querySelector('div[id^="reply-start"]');
     final children = root?.children ?? const <dom.Element>[];
     for (var index = 0; index + 1 < children.length; index += 2) {
-      final body = children[index];
-      final post = children[index + 1];
-      final fields = body.querySelectorAll('.comment-index-text');
-      if (fields.length < 2) continue;
-      comments.add(Comment(id: '', username: fields.first.querySelector('a')?.text.trim() ?? '', content: fields[1].text.trim(), avatarUrl: _absolute(baseUrl, body.querySelector('img')?.attributes['src']), timeAgo: fields.first.querySelector('span')?.text.trim(), likeCount: post.querySelectorAll('span[style]').skip(1).firstOrNull?.text.trim(), foreignId: post.querySelector('#foreign_id')?.attributes['value'], likeUserId: post.querySelector('input[name="comment-like-user-id"]')?.attributes['value'], likesCount: int.tryParse(post.querySelector('input[name="comment-likes-count"]')?.attributes['value'] ?? ''), likesSum: int.tryParse(post.querySelector('input[name="comment-likes-sum"]')?.attributes['value'] ?? ''), liked: post.querySelector('input[name="like-comment-status"]')?.attributes['value'] == '1', disliked: post.querySelector('input[name="unlike-comment-status"]')?.attributes['value'] == '1', reportableId: body.querySelector('span.report-btn')?.attributes['data-reportable-id'], reportableType: body.querySelector('span.report-btn')?.attributes['data-reportable-type']));
+      final comment = _parseReply(baseUrl, children[index], children[index + 1]);
+      if (comment != null) comments.add(comment);
+    }
+    if (comments.isEmpty) {
+      for (final block in document.querySelectorAll('div.comment-item-block')) {
+        final comment = _parseCommentBlock(baseUrl, block);
+        if (comment != null) comments.add(comment);
+      }
     }
     return CommentPage(comments: comments);
   }
 
-  Future<void> postComment(String baseUrl, String token, String userId, String type, String targetId, String text) => _form(siteEndpointUrl(baseUrl, 'createComment'), {'_token': token, 'comment-user-id': userId, 'comment-type': type, 'comment-foreign-id': targetId, 'comment-text': text, 'comment-count': '1', 'comment-is-political': '0'}, token);
+  Comment? _parseReply(String baseUrl, dom.Element body, dom.Element post) {
+    final fields = body.querySelectorAll('.comment-index-text');
+    if (fields.length < 2) return null;
+    final username = fields.first.querySelector('a')?.text.trim() ?? '';
+    final content = fields[1].text.trim();
+    if (username.isEmpty || content.isEmpty) return null;
+    final likeSpans = post.querySelectorAll('span[style]');
+    final likeCount = likeSpans.length > 1 ? likeSpans[1].text.trim() : null;
+    final blockId = (body.attributes['data-comment-id'] ?? '').trim();
+    return Comment(
+      id: blockId.isEmpty ? '${username}_${_javaStringHash(content)}' : blockId,
+      username: username,
+      content: content,
+      avatarUrl: _absolute(baseUrl, body.querySelector('img')?.attributes['src']),
+      timeAgo: fields.first.querySelector('span')?.text.trim(),
+      likeCount: likeCount,
+      foreignId: post.querySelector('#foreign_id')?.attributes['value'],
+      likeUserId: post.querySelector('input[name="comment-like-user-id"]')?.attributes['value'],
+      likesCount: int.tryParse(post.querySelector('input[name="comment-likes-count"]')?.attributes['value'] ?? ''),
+      likesSum: int.tryParse(post.querySelector('input[name="comment-likes-sum"]')?.attributes['value'] ?? ''),
+      liked: post.querySelector('input[name="like-comment-status"]')?.attributes['value'] == '1',
+      disliked: post.querySelector('input[name="unlike-comment-status"]')?.attributes['value'] == '1',
+      reportableId: body.querySelector('span.report-btn')?.attributes['data-reportable-id'],
+      reportableType: body.querySelector('span.report-btn')?.attributes['data-reportable-type'],
+    );
+  }
+
+  Future<void> postComment(String baseUrl, String token, String userId, String type, String targetId, String text) => _form(siteEndpointUrl(baseUrl, 'createComment'), {'_token': token, 'comment-user-id': userId, 'comment-type': type, 'comment-foreign-id': targetId, 'comment-text': text, 'comment-count': '1'}, token);
   Future<void> replyComment(String baseUrl, String token, String commentId, String text) => _form(siteEndpointUrl(baseUrl, 'replyComment'), {'_token': token, 'reply-comment-id': commentId, 'reply-comment-text': text}, token);
-  Future<void> voteComment(String baseUrl, String token, Comment comment, bool positive) => _form(siteEndpointUrl(baseUrl, 'commentLike'), {'_token': token, 'foreign_type': comment.id.isEmpty ? 'reply' : 'comment', 'foreign_id': comment.foreignId ?? '', 'is_positive': positive ? '1' : '0', 'comment-like-user-id': comment.likeUserId ?? '', 'comment-likes-count': '${comment.likesCount ?? 0}', 'comment-likes-sum': '${comment.likesSum ?? 0}', 'like-comment-status': comment.liked ? '1' : '0', 'unlike-comment-status': comment.disliked ? '1' : '0'}, token);
+  Future<void> voteComment(String baseUrl, String token, Comment comment, bool positive) => _form(siteEndpointUrl(baseUrl, 'commentLike'), {'_token': token, 'foreign_type': comment.id.isEmpty ? 'reply' : 'comment', 'foreign_id': comment.foreignId ?? '', 'is_positive': positive ? '1' : '0', 'comment-likes-count': '${comment.likesCount ?? 0}', 'comment-likes-sum': '${comment.likesSum ?? 0}', 'like-comment-status': comment.liked ? '1' : '0', 'unlike-comment-status': comment.disliked ? '1' : '0'}, token);
   Future<void> reportComment(String baseUrl, String token, String userId, Comment comment, String reason) => _form(siteEndpointUrl(baseUrl, 'user/$userId/report'), {'redirect-url': '', 'reportable-id': comment.reportableId ?? comment.foreignId ?? '', 'reportable-type': comment.reportableType ?? (comment.id.isEmpty ? 'reply' : 'comment'), 'reason': reason}, token);
 
   Future<({dom.Document document, String body})> _documentWithBody(String url, {String? referer, bool skipCache = false}) async {
@@ -639,12 +696,17 @@ class Han1meApi {
     return items;
   }
 
-  static bool isCloudflareResponse(int? statusCode, Map<String, List<String>> headers, String body) => statusCode == 403 &&
-      ((headers['cf-mitigated'] ?? headers['CF-Mitigated'] ?? const <String>[]).any((value) => value.toLowerCase() == 'challenge') ||
-          body.contains('cf-chl-') ||
-          body.contains('challenge-form') ||
-          body.contains('Just a moment') ||
-          body.contains('Attention Required'));
+  static bool isCloudflareResponse(int? statusCode, Map<String, List<String>> headers, String body) {
+    final mitigated = (headers['cf-mitigated'] ?? headers['CF-Mitigated'] ?? const <String>[]).any((value) => value.toLowerCase().contains('challenge'));
+    if (mitigated) return true;
+    if (statusCode != 403 && statusCode != 429 && statusCode != 503) return false;
+    return body.contains('cf-chl-') ||
+        body.contains('challenge-form') ||
+        body.contains('Just a moment') ||
+        body.contains('Attention Required') ||
+        body.contains('Verifying you are human') ||
+        body.contains('Checking your browser');
+  }
 
   VideoCard _card(dom.Element element) {
     final dataHref = element.attributes['data-href'] ?? '';

@@ -39,7 +39,18 @@ class _Han1meAppState extends ConsumerState<Han1meApp> {
 
   @override
   Widget build(BuildContext context) {
-    final settings = ref.watch(settingsProvider).value ?? AppSettings();
+    final theme = ref.watch(settingsProvider.select((value) {
+      final settings = value.valueOrNull ?? const AppSettings();
+      return (
+        textScale: settings.textScale,
+        language: settings.language,
+        materialThemeMode: settings.materialThemeMode,
+        useMonetColors: settings.useMonetColors,
+        themeColor: settings.themeColor,
+        customThemeColor: settings.customThemeColor,
+        amoledMode: settings.amoledMode,
+      );
+    }));
     return DynamicColorBuilder(
       builder: (lightDynamic, darkDynamic) => MaterialApp.router(
         onGenerateTitle: (context) => AppLocalizations.of(context)!.appTitle,
@@ -50,13 +61,13 @@ class _Han1meAppState extends ConsumerState<Han1meApp> {
             navigatorKey: _appRouter.navigatorKey,
             exitCoordinator: _exitCoordinator,
             child: MediaQuery(
-              data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(settings.textScale)),
+              data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(theme.textScale)),
               child: AppLockGate(child: child ?? const SizedBox.shrink()),
             ),
           ),
         ),
         scrollBehavior: const AppScrollBehavior(),
-        locale: switch (settings.language) {
+        locale: switch (theme.language) {
           AppLanguage.system => null,
           AppLanguage.simplifiedChinese => const Locale('zh'),
           AppLanguage.traditionalChinese => const Locale('zh', 'TW'),
@@ -64,13 +75,13 @@ class _Han1meAppState extends ConsumerState<Han1meApp> {
         },
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        themeMode: settings.materialThemeMode,
-        theme: appTheme(settings.useMonetColors ? lightDynamic : null, settings.themeColor.seedColor(settings.customThemeColor)),
+        themeMode: theme.materialThemeMode,
+        theme: appTheme(theme.useMonetColors ? lightDynamic : null, theme.themeColor.seedColor(theme.customThemeColor)),
         darkTheme: appTheme(
-          settings.useMonetColors ? darkDynamic : null,
-          settings.themeColor.seedColor(settings.customThemeColor),
+          theme.useMonetColors ? darkDynamic : null,
+          theme.themeColor.seedColor(theme.customThemeColor),
           brightness: Brightness.dark,
-          amoled: settings.amoledMode,
+          amoled: theme.amoledMode,
         ),
       ),
     );

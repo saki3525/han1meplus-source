@@ -21,8 +21,11 @@ Future<void> bootstrapDesktopNetwork([AppSettings? settings]) async {
 }
 
 Future<void> _importWebViewCookies(AppSettings settings) async {
-  final urls = [settings.resolvedBaseUrl, ...WebViewCookieBridge.urls];
-  final cookies = await WebViewCookieBridge.read(urls);
-  if (cookies.isEmpty) return;
-  await Han1meHttpClient().saveCookies(cookies, url: settings.resolvedBaseUrl);
+  final urls = <String>{settings.resolvedBaseUrl, ...WebViewCookieBridge.urls};
+  final client = Han1meHttpClient();
+  for (final url in urls) {
+    final cookies = await WebViewCookieBridge.read([url]);
+    if (cookies.isEmpty) continue;
+    await client.saveCookies(cookies, url: url, broadcast: false);
+  }
 }

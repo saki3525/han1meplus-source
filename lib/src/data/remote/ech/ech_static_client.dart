@@ -66,9 +66,9 @@ class EchStaticClient {
     return host == null ? '' : _cookies[host] ?? '';
   }
 
-  void mergeCookies(Uri uri, String cookies) {
+  void mergeCookies(Uri uri, String cookies, {bool broadcast = true}) {
     if (cookies.trim().isEmpty) return;
-    final targets = hanimeSiteHosts.contains(uri.host) ? hanimeSiteHosts : {uri.host};
+    final targets = !broadcast || !hanimeSiteHosts.contains(uri.host) ? {uri.host} : hanimeSiteHosts;
     for (final host in targets) {
       _mergeForHost(host, cookies);
     }
@@ -149,7 +149,7 @@ class EchStaticClient {
 
       final setCookie = native.headers['set-cookie'];
       if (native.statusCode >= 200 && native.statusCode < 400 && setCookie != null && setCookie.isNotEmpty) {
-        mergeCookies(uri, setCookie);
+        mergeCookies(uri, setCookie, broadcast: false);
       }
 
       final location = native.headers['location'];

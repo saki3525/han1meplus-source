@@ -10,5 +10,7 @@ final commentsProvider = FutureProvider.autoDispose.family<CommentPage, String>(
   final timer = Timer(const Duration(minutes: 10), link.close);
   ref.onDispose(timer.cancel);
   ref.watch(accountProvider);
-  return ref.read(han1meRepositoryProvider).comments((await ref.watch(settingsProvider.future)).resolvedBaseUrl, id);
+  final cachedBaseUrl = ref.watch(settingsProvider.select((value) => value.valueOrNull?.resolvedBaseUrl));
+  final baseUrl = cachedBaseUrl ?? (await ref.read(settingsProvider.future)).resolvedBaseUrl;
+  return ref.read(han1meRepositoryProvider).comments(baseUrl, id);
 });

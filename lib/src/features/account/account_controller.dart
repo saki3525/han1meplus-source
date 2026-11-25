@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import '../../core/network/cloudflare_session.dart';
+import '../../core/network/cloudflare_verification.dart';
 import '../../data/han1me_repository.dart';
 import '../../data/local/account_store.dart';
 import '../../domain/models/account.dart';
@@ -13,46 +14,50 @@ import '../../data/local/library_repository.dart';
 final accountStoreProvider = Provider((_) => AccountStore());
 final accountProvider = AsyncNotifierProvider<AccountController, Account?>(AccountController.new);
 final accountsProvider = FutureProvider<List<Account>>((ref) async {
-  final settings = await ref.watch(settingsProvider.future);
-  return ref.read(accountStoreProvider).readAll(settings.resolvedBaseUrl);
+  final cachedBaseUrl = ref.watch(settingsProvider.select((value) => value.valueOrNull?.resolvedBaseUrl));
+  final baseUrl = cachedBaseUrl ?? (await ref.read(settingsProvider.future)).resolvedBaseUrl;
+  return ref.read(accountStoreProvider).readAll(baseUrl);
 });
 
 class AccountController extends AsyncNotifier<Account?> {
   @override
   Future<Account?> build() async {
-    ref.listen(settingsProvider, (previous, next) {
-      if (previous?.valueOrNull?.resolvedBaseUrl != null && previous?.valueOrNull?.resolvedBaseUrl != next.valueOrNull?.resolvedBaseUrl) ref.invalidateSelf();
-    });
-    final settings = await ref.watch(settingsProvider.future);
+    final cachedBaseUrl = ref.watch(settingsProvider.select((value) => value.valueOrNull?.resolvedBaseUrl));
+    final baseUrl = cachedBaseUrl ?? (await ref.read(settingsProvider.future)).resolvedBaseUrl;
+    return _load(baseUrl);
+  }
+
+  Future<Account?> _load(String baseUrl) async {
     final store = ref.read(accountStoreProvider);
     final http = ref.read(han1meHttpClientProvider);
     ref.read(han1meRepositoryProvider).replaceCookie('');
-    final cloudflareCookie = await store.readCloudflareCookie(settings.resolvedBaseUrl);
+    final cloudflareCookie = await store.readCloudflareCookie(baseUrl);
     if (cloudflareCookie?.isNotEmpty == true) {
       ref.read(han1meRepositoryProvider).setCloudflareCookie(cloudflareCookie!);
-      if (!await http.hasCookie(settings.resolvedBaseUrl, 'cf_clearance')) {
-        await http.saveCookies(cloudflareCookie!, url: settings.resolvedBaseUrl);
+      if (!await http.hasCookie(baseUrl, 'cf_clearance')) {
+        await http.saveCookies(cloudflareCookie!, url: baseUrl, broadcast: false);
       }
     }
-    final account = await store.read(settings.resolvedBaseUrl);
+    final account = await store.read(baseUrl);
     if (account == null || account.cookie.isEmpty) return null;
     final cookie = _withoutCloudflareCookie(account.cookie);
     final sanitizedAccount = account.copyWith(cookie: cookie);
-    if (cookie != account.cookie) await store.write(settings.resolvedBaseUrl, sanitizedAccount);
+    if (cookie != account.cookie) await store.write(baseUrl, sanitizedAccount);
     ref.read(han1meRepositoryProvider).setCookie(cookie);
-    await http.saveCookies(cookie, url: settings.resolvedBaseUrl);
+    await http.saveCookies(cookie, url: baseUrl);
     unawaited(Future<void>.delayed(Duration.zero, () async {
       await _refresh(sanitizedAccount);
     }));
     return sanitizedAccount;
   }
 
-  Future<void> saveCloudflareCookie(String cookie) async {
+  Future<void> saveCloudflareCookie(String cookie, {String? url}) async {
     CloudflareSession.markVerified();
     final settings = await ref.read(settingsProvider.future);
+    final targetUrl = CloudflareVerification.normalizedUrl(url != null && url.isNotEmpty ? url : settings.resolvedBaseUrl);
     ref.read(han1meRepositoryProvider).setCloudflareCookie(cookie);
-    await ref.read(han1meHttpClientProvider).saveCookies(cookie, url: settings.resolvedBaseUrl);
-    await ref.read(accountStoreProvider).writeCloudflareCookie(settings.resolvedBaseUrl, cookie);
+    await ref.read(han1meHttpClientProvider).saveCookies(cookie, url: targetUrl, broadcast: false);
+    await ref.read(accountStoreProvider).writeCloudflareCookie(targetUrl, cookie);
   }
 
   Future<void> saveCookie(String cookie) async {
@@ -63,7 +68,7 @@ class AccountController extends AsyncNotifier<Account?> {
     ref.read(han1meRepositoryProvider).replaceCookie(account.cookie);
     if (cloudflareCookie.isNotEmpty) {
       ref.read(han1meRepositoryProvider).setCloudflareCookie(cloudflareCookie);
-      await http.saveCookies(cloudflareCookie, url: settings.resolvedBaseUrl);
+      await http.saveCookies(cloudflareCookie, url: settings.resolvedBaseUrl, broadcast: false);
       await ref.read(accountStoreProvider).writeCloudflareCookie(settings.resolvedBaseUrl, cloudflareCookie);
     }
     await http.saveCookies(account.cookie, url: settings.resolvedBaseUrl);
@@ -83,7 +88,7 @@ class AccountController extends AsyncNotifier<Account?> {
     final cloudflareCookie = await ref.read(accountStoreProvider).readCloudflareCookie(settings.resolvedBaseUrl);
     if (cloudflareCookie?.isNotEmpty == true) {
       ref.read(han1meRepositoryProvider).setCloudflareCookie(cloudflareCookie!);
-      await http.saveCookies(cloudflareCookie!, url: settings.resolvedBaseUrl);
+      await http.saveCookies(cloudflareCookie!, url: settings.resolvedBaseUrl, broadcast: false);
     }
     ref.read(han1meRepositoryProvider).setCookie(account.cookie);
     await http.saveCookies(account.cookie, url: settings.resolvedBaseUrl);
@@ -102,7 +107,7 @@ class AccountController extends AsyncNotifier<Account?> {
       final cloudflareCookie = await ref.read(accountStoreProvider).readCloudflareCookie(settings.resolvedBaseUrl);
       if (cloudflareCookie?.isNotEmpty == true) {
         ref.read(han1meRepositoryProvider).setCloudflareCookie(cloudflareCookie!);
-        await ref.read(han1meHttpClientProvider).saveCookies(cloudflareCookie!, url: settings.resolvedBaseUrl);
+        await ref.read(han1meHttpClientProvider).saveCookies(cloudflareCookie!, url: settings.resolvedBaseUrl, broadcast: false);
       }
       state = const AsyncData(null);
     }
@@ -123,7 +128,7 @@ class AccountController extends AsyncNotifier<Account?> {
     state = const AsyncData(null);
     if (active?.id != null) await ref.read(accountStoreProvider).remove(settings.resolvedBaseUrl, active!.id!);
     await ref.read(han1meHttpClientProvider).clearCookies(url: settings.resolvedBaseUrl);
-    if (cloudflareCookie?.isNotEmpty == true) await ref.read(han1meHttpClientProvider).saveCookies(cloudflareCookie!, url: settings.resolvedBaseUrl);
+    if (cloudflareCookie?.isNotEmpty == true) await ref.read(han1meHttpClientProvider).saveCookies(cloudflareCookie!, url: settings.resolvedBaseUrl, broadcast: false);
     await CookieManager.instance().deleteAllCookies();
     ref.invalidate(accountsProvider);
   }

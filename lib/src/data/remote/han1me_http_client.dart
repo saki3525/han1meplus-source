@@ -29,19 +29,21 @@ class Han1meHttpClient {
 
   static bool get _isDesktop => isDesktopHttpPlatform;
 
+  static var _desktopProxyActive = false;
+
   static String get userAgent => siteUserAgent;
 
-  Future<void> saveCookies(String cookies, {String? url}) async {
+  Future<void> saveCookies(String cookies, {String? url, bool broadcast = true}) async {
     final host = Uri.tryParse(url ?? '')?.host;
     if (host != null && hanimeSiteHosts.contains(host)) {
-      EchStaticClient.instance?.mergeCookies(Uri.parse(url!), cookies);
+      EchStaticClient.instance?.mergeCookies(Uri.parse(url!), cookies, broadcast: broadcast);
     }
     if (!_isDesktop) {
-      await _channel.invokeMethod<void>('saveCookies', {'cookies': cookies, if (url != null) 'url': url});
+      await _channel.invokeMethod<void>('saveCookies', {'cookies': cookies, if (url != null) 'url': url, 'broadcast': broadcast});
       return;
     }
     if (host == null || host.isEmpty) return;
-    for (final target in _cookieHosts(host)) {
+    for (final target in broadcast ? _cookieHosts(host) : [host]) {
       _desktopCookies[target] = _mergeCookies(_desktopCookies[target], cookies);
     }
   }
@@ -96,8 +98,10 @@ class Han1meHttpClient {
     String mediaCdnCustomIp = '',
   }) async {
     if (_isDesktop) {
+      final proxy = await WindowsHttpOverrides.systemProxy();
+      _desktopProxyActive = proxy.trim().toUpperCase() != 'DIRECT';
       HttpOverrides.global = WindowsHttpOverrides(
-        proxy: await WindowsHttpOverrides.systemProxy(),
+        proxy: proxy,
         useBuiltInHosts: useBuiltInHosts,
         useDoh: useDoh,
         dohPreset: dohPreset,
@@ -222,6 +226,7 @@ class Han1meHttpClient {
   }) async {
     final uri = Uri.tryParse(url);
     if (uri == null) return null;
+    if (_isDesktop && _desktopProxyActive) return null;
     final host = uri.host;
     final baseHost = host.startsWith('www.') ? host.substring(4) : host;
     if (!hanimeSiteHosts.contains(host) && !hanimeSiteHosts.contains(baseHost)) return null;
@@ -242,7 +247,7 @@ class Han1meHttpClient {
       }
       final setCookie = response.headers['set-cookie'];
       if (response.statusCode >= 200 && response.statusCode < 400 && setCookie != null && setCookie.isNotEmpty) {
-        await saveCookies(setCookie, url: response.url);
+        await saveCookies(setCookie, url: response.url, broadcast: false);
       }
       return Han1meHttpResponse(
         statusCode: response.statusCode,
@@ -347,7 +352,7 @@ class Han1meHttpClient {
 
   void _saveResponseCookies(Uri uri, List<Cookie> cookies) {
     if (cookies.isEmpty) return;
-    saveCookies(cookies.map((cookie) => '${cookie.name}=${cookie.value}').join('; '), url: uri.toString());
+    saveCookies(cookies.map((cookie) => '${cookie.name}=${cookie.value}').join('; '), url: uri.toString(), broadcast: false);
   }
 
   Iterable<String> _cookieHosts(String host) => hanimeSiteHosts.contains(host) ? hanimeSiteHosts : [host];

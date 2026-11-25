@@ -57,7 +57,10 @@ class _VideoPlayerPanelState extends ConsumerState<VideoPlayerPanel> with RouteA
   var _autoNextTriggered = false;
   bool? _wasPlaying;
   Duration _watched = Duration.zero;
+  Duration _lastRecordedWatch = Duration.zero;
   DateTime? _lastWatchedAt;
+  String? _watchSessionKey;
+  Timer? _watchTicker;
   late final WatchController _watchController;
 
   @override
@@ -65,6 +68,7 @@ class _VideoPlayerPanelState extends ConsumerState<VideoPlayerPanel> with RouteA
     super.initState();
     _watchController = ref.read(watchProvider.notifier);
     WidgetsBinding.instance.addObserver(this);
+    _watchTicker = Timer.periodic(const Duration(seconds: 1), (_) => _tickWatch());
     _controllerNotifier.addListener(_handleControllerChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _syncSource();
@@ -143,7 +147,9 @@ class _VideoPlayerPanelState extends ConsumerState<VideoPlayerPanel> with RouteA
       if (oldWidget.video.id != widget.video.id) {
         _restored = false;
         _watched = Duration.zero;
+        _lastRecordedWatch = Duration.zero;
         _lastWatchedAt = null;
+        _watchSessionKey = null;
       }
       _syncSource();
     }
@@ -344,10 +350,7 @@ class _VideoPlayerPanelState extends ConsumerState<VideoPlayerPanel> with RouteA
       _lastWatchedAt = null;
       return;
     }
-    final now = DateTime.now();
-    final lastWatchedAt = _lastWatchedAt;
-    if (value.isPlaying && lastWatchedAt != null) _watched += now.difference(lastWatchedAt);
-    _lastWatchedAt = value.isPlaying ? now : null;
+
     if (_wasPlaying != value.isPlaying) {
       _wasPlaying = value.isPlaying;
       if (value.isPlaying) unawaited(VideoPlayerShutdown.pauseAllExcept(controller));
@@ -373,12 +376,40 @@ class _VideoPlayerPanelState extends ConsumerState<VideoPlayerPanel> with RouteA
     ref.read(watchProvider.notifier).progress(id: widget.video.id, title: widget.video.title, coverUrl: widget.video.coverUrl, positionMs: value.position.inMilliseconds, durationMs: durationMs);
   }
 
+  void _tickWatch() {
+    final controller = _controllerNotifier.value;
+    final playing = controller?.value.isInitialized == true && controller!.value.isPlaying;
+    final now = DateTime.now();
+    final last = _lastWatchedAt;
+    if (playing && last != null) _watched += now.difference(last);
+    _lastWatchedAt = playing ? now : null;
+    if (_watched - _lastRecordedWatch >= const Duration(seconds: 10)) _recordWatch();
+  }
+
   void _recordWatch() {
     final watchedMs = _watched.inMilliseconds;
     if (watchedMs < _watchThresholdMs) return;
-    _watched = Duration.zero;
-    if (ref.read(settingsProvider).valueOrNull?.incognitoPlayback == true) return;
-    unawaited(_watchController.addTime(widget.video.id, widget.video.title, watchedMs).catchError((_) {}));
+    _lastRecordedWatch = _watched;
+    bool incognito = false;
+    try {
+      incognito = ref.read(settingsProvider).valueOrNull?.incognitoPlayback == true;
+    } catch (_) {}
+    if (incognito) return;
+    _watchSessionKey ??= '${widget.video.id}-${DateTime.now().microsecondsSinceEpoch}';
+    unawaited(_watchController
+        .addTime(
+          widget.video.id,
+          widget.video.title,
+          watchedMs,
+          coverUrl: widget.video.coverUrl,
+          sessionKey: _watchSessionKey,
+          artistName: widget.video.artist,
+          duration: widget.video.duration,
+          views: widget.video.views,
+          rating: widget.video.rating,
+          uploadTime: widget.video.uploadDate,
+        )
+        .catchError((_) {}));
   }
 
   Future<void> _fullscreen() async {
@@ -432,6 +463,8 @@ class _VideoPlayerPanelState extends ConsumerState<VideoPlayerPanel> with RouteA
 
   @override
   void dispose() {
+    _watchTicker?.cancel();
+    _watchTicker = null;
     routeObserver.unsubscribe(this);
     WidgetsBinding.instance.removeObserver(this);
     _disposed = true;

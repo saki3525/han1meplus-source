@@ -14,6 +14,7 @@ import '../features/cache/cache_page.dart';
 import '../features/cache/download_group_page.dart';
 import '../features/comics/comic_pages.dart';
 import '../features/explore/explore_page.dart';
+import '../features/library/history_page.dart';
 import '../features/library/library_page.dart';
 import '../features/navigation/app_shell.dart';
 import '../features/navigation/exit_coordinator.dart';
@@ -68,6 +69,7 @@ class AppRouter {
                       path: ':tab',
                       builder: (context, state) {
                         final tab = _libraryTab(state.pathParameters['tab']);
+                        if (tab == 'history') return const HistoryPage();
                         return LibraryPage(key: ValueKey(tab), initialTab: tab);
                       },
                     ),
@@ -75,10 +77,11 @@ class AppRouter {
                 ),
               ],
             ),
-            StatefulShellBranch(routes: [GoRoute(path: '/cache', builder: (context, state) => const CachePage())]),
             StatefulShellBranch(routes: [GoRoute(path: '/settings', builder: (context, state) => const SettingsPage())]),
           ],
         ),
+        GoRoute(path: '/cache', builder: (context, state) => const CachePage()),
+        GoRoute(path: '/history', builder: (context, state) => const HistoryPage()),
         GoRoute(path: '/login', builder: (context, state) => const LoginPage()),
         GoRoute(path: '/login/cookies', builder: (context, state) => const ManualCookiePage()),
         GoRoute(path: '/mine', builder: (context, state) => const AccountPage()),

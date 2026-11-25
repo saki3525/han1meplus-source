@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../core/app_shell.dart';
@@ -12,6 +11,7 @@ import '../account/account_controller.dart';
 import '../comics/comic_pages.dart';
 import '../settings/settings_controller.dart';
 import 'exit_coordinator.dart';
+import 'floating_navigation_bar.dart';
 
 class AppShell extends ConsumerStatefulWidget {
   const AppShell({super.key, required this.navigationShell, required this.exitCoordinator});
@@ -28,14 +28,13 @@ class _AppShellState extends ConsumerState<AppShell> with SingleTickerProviderSt
   late int _currentIndex;
   late final List<int> _branchHistory;
   var _isBackNavigation = false;
-  var _pageTransitionOffset = Offset.zero;
 
   @override
   void initState() {
     super.initState();
     _currentIndex = widget.navigationShell.currentIndex;
     _branchHistory = <int>[widget.navigationShell.currentIndex];
-    _pageTransitionController = AnimationController(vsync: this, duration: const Duration(milliseconds: 260), value: 1);
+    _pageTransitionController = AnimationController(vsync: this, duration: const Duration(milliseconds: 200), value: 1);
   }
 
   @override
@@ -43,7 +42,6 @@ class _AppShellState extends ConsumerState<AppShell> with SingleTickerProviderSt
     super.didUpdateWidget(oldWidget);
     final nextIndex = widget.navigationShell.currentIndex;
     if (nextIndex == _currentIndex) return;
-    _pageTransitionOffset = Offset(nextIndex > _currentIndex ? 1 : -1, 0);
     if (_isBackNavigation) {
       if (_branchHistory.isNotEmpty) _branchHistory.removeLast();
       _isBackNavigation = false;
@@ -65,17 +63,23 @@ class _AppShellState extends ConsumerState<AppShell> with SingleTickerProviderSt
 
   @override
   Widget build(BuildContext context) {
-    final settings = ref.watch(settingsProvider).valueOrNull;
-    final comicMode = settings?.comicMode ?? false;
-    final drawerMode = settings?.useNavigationDrawer ?? false;
+    final shell = ref.watch(settingsProvider.select((value) {
+      final settings = value.valueOrNull;
+      return (
+        comicMode: settings?.comicMode ?? false,
+        drawerMode: settings?.useNavigationDrawer ?? false,
+        floatingNavigationBar: settings?.useFloatingNavigationBar ?? true,
+      );
+    }));
+    final comicMode = shell.comicMode;
+    final drawerMode = shell.drawerMode;
     final largeScreen = MediaQuery.sizeOf(context).shortestSide >= 600;
     final permanentDrawer = drawerMode && largeScreen;
     final useRail = !drawerMode && largeScreen;
-    final useLiquidGlassBottomBar = !drawerMode && !useRail && (settings?.useLiquidGlassBottomBar ?? true);
+    final useFloatingNavigationBar = !drawerMode && !useRail && shell.floatingNavigationBar;
     final destinations = [
       (icon: Icons.explore_outlined, selectedIcon: Icons.explore, label: AppLocalizations.of(context)!.explore),
       (icon: Icons.bookmark_outline, selectedIcon: Icons.bookmark, label: AppLocalizations.of(context)!.library),
-      (icon: Icons.download_outlined, selectedIcon: Icons.download, label: AppLocalizations.of(context)!.cache),
       (icon: Icons.settings_outlined, selectedIcon: Icons.settings, label: AppLocalizations.of(context)!.settings),
     ];
     void select(int index) => widget.navigationShell.goBranch(index, initialLocation: index == widget.navigationShell.currentIndex);
@@ -83,21 +87,20 @@ class _AppShellState extends ConsumerState<AppShell> with SingleTickerProviderSt
         ? switch (widget.navigationShell.currentIndex) {
             0 => const ComicExplorePage(),
             1 => ComicLibraryPage(initialTab: _libraryTab(GoRouterState.of(context).pathParameters['tab']), drawerMode: drawerMode),
-            2 => const ComicCachePage(),
             _ => widget.navigationShell,
           }
         : widget.navigationShell;
-    final animatedContent = useLiquidGlassBottomBar
+    final animatedContent = useFloatingNavigationBar
         ? RepaintBoundary(
-            child: SlideTransition(
-              position: Tween(begin: _pageTransitionOffset, end: Offset.zero).chain(CurveTween(curve: Curves.easeOutCubic)).animate(_pageTransitionController),
+            child: FadeTransition(
+              opacity: CurvedAnimation(parent: _pageTransitionController, curve: Curves.easeInOut),
               child: content,
             ),
           )
         : content;
     final mediaQuery = MediaQuery.of(context);
-    final contentMediaQuery = useLiquidGlassBottomBar
-        ? mediaQuery.copyWith(padding: mediaQuery.padding.copyWith(bottom: mediaQuery.padding.bottom + 104))
+    final contentMediaQuery = useFloatingNavigationBar
+        ? mediaQuery.copyWith(padding: mediaQuery.padding.copyWith(bottom: mediaQuery.padding.bottom + 96))
         : mediaQuery;
     return PopScope(
       canPop: false,
@@ -107,7 +110,7 @@ class _AppShellState extends ConsumerState<AppShell> with SingleTickerProviderSt
       },
       child: Scaffold(
         key: drawerMode ? appShellScaffoldKey : null,
-        extendBody: useLiquidGlassBottomBar,
+        extendBody: useFloatingNavigationBar,
         drawer: drawerMode && !permanentDrawer ? _AppDrawer(navigationShell: widget.navigationShell) : null,
         body: permanentDrawer
             ? Row(
@@ -133,11 +136,11 @@ class _AppShellState extends ConsumerState<AppShell> with SingleTickerProviderSt
                 : MediaQuery(data: contentMediaQuery, child: animatedContent),
         bottomNavigationBar: drawerMode || useRail
             ? null
-            : useLiquidGlassBottomBar
-                ? GlassTabBar.bottom(
+            : useFloatingNavigationBar
+                ? FloatingNavigationBar(
                     selectedIndex: widget.navigationShell.currentIndex,
-                    onTabSelected: select,
-                    tabs: destinations.map((destination) => GlassTab(icon: Icon(destination.icon), activeIcon: Icon(destination.selectedIcon), label: destination.label)).toList(),
+                    onDestinationSelected: select,
+                    destinations: destinations.map((destination) => FloatingNavigationDestination(icon: destination.icon, selectedIcon: destination.selectedIcon, label: destination.label)).toList(),
                   )
                 : NavigationBar(
                     selectedIndex: widget.navigationShell.currentIndex,
@@ -185,9 +188,8 @@ List<_DrawerItem> _drawerItems(BuildContext context, {bool comicMode = false}) {
     if (!comicMode) ...[
       _DrawerItem(icon: Icons.playlist_play_outlined, selectedIcon: Icons.playlist_play, label: l10n.playlists, location: '/library/playlists'),
       _DrawerItem(icon: Icons.subscriptions_outlined, selectedIcon: Icons.subscriptions, label: l10n.subscriptions, location: '/library/subscriptions'),
-      _DrawerItem(icon: Icons.history_outlined, selectedIcon: Icons.history, label: l10n.watchHistory, location: '/library/history'),
+      _DrawerItem(icon: Icons.history_outlined, selectedIcon: Icons.history, label: l10n.watchHistory, location: '/history'),
     ],
-    _DrawerItem(icon: Icons.download_outlined, selectedIcon: Icons.download, label: l10n.download, location: '/cache'),
   ];
   return items;
 }
@@ -205,7 +207,7 @@ class _AppDrawer extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final account = ref.watch(accountProvider).valueOrNull;
-    final comicMode = ref.watch(settingsProvider).valueOrNull?.comicMode ?? false;
+    final comicMode = ref.watch(settingsProvider.select((value) => value.valueOrNull?.comicMode ?? false));
     final destinations = _drawerItems(context, comicMode: comicMode);
     final selectedIndex = _selectedDrawerIndex(context, destinations);
     return NavigationDrawer(
@@ -232,8 +234,6 @@ class _AppDrawer extends ConsumerWidget {
       case '/':
         navigationShell.goBranch(0, initialLocation: navigationShell.currentIndex == 0);
       case '/settings':
-        navigationShell.goBranch(3, initialLocation: navigationShell.currentIndex == 3);
-      case '/cache':
         navigationShell.goBranch(2, initialLocation: navigationShell.currentIndex == 2);
       default:
         context.push(location);
@@ -249,7 +249,7 @@ class _PermanentNavigationDrawer extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final account = ref.watch(accountProvider).valueOrNull;
-    final comicMode = ref.watch(settingsProvider).valueOrNull?.comicMode ?? false;
+    final comicMode = ref.watch(settingsProvider.select((value) => value.valueOrNull?.comicMode ?? false));
     final destinations = _drawerItems(context, comicMode: comicMode);
     final selectedIndex = _selectedDrawerIndex(context, destinations);
     return SizedBox(
@@ -263,8 +263,6 @@ class _PermanentNavigationDrawer extends ConsumerWidget {
               case '/':
                 navigationShell.goBranch(0, initialLocation: navigationShell.currentIndex == 0);
               case '/settings':
-                navigationShell.goBranch(3, initialLocation: navigationShell.currentIndex == 3);
-              case '/cache':
                 navigationShell.goBranch(2, initialLocation: navigationShell.currentIndex == 2);
               default:
                 context.push(location);

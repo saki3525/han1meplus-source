@@ -13,9 +13,9 @@ class AppLockController extends Notifier<AppLockStatus> {
 
   @override
   AppLockStatus build() {
-    final settings = ref.watch(settingsProvider).valueOrNull;
-    if (settings == null) return AppLockStatus.unlocking;
-    if (_everUnlocked || !settings.appLockEnabled || PlatformService.isDesktop) {
+    final enabled = ref.watch(settingsProvider.select((value) => value.valueOrNull?.appLockEnabled));
+    if (enabled == null) return AppLockStatus.unlocking;
+    if (_everUnlocked || !enabled || PlatformService.isDesktop) {
       _everUnlocked = true;
       return AppLockStatus.unlocked;
     }

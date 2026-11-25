@@ -1304,11 +1304,11 @@ class AppLocalizationsEn extends AppLocalizations {
       'Use a drawer instead of the bottom navigation bar';
 
   @override
-  String get liquidGlassBottomBar => 'Liquid Glass Bottom Bar';
+  String get floatingNavigationBar => 'Floating Navigation Bar';
 
   @override
-  String get liquidGlassBottomBarDescription =>
-      'Use a floating Liquid Glass bottom navigation bar';
+  String get floatingNavigationBarDescription =>
+      'Use a floating navigation bar for the bottom navigation';
 
   @override
   String get home => 'Home';
@@ -1930,4 +1930,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get echDisabled => 'ECH is turned off; requests use the standard channel';
   @override
   String get finishedVerification => 'Verification Finished';
+  @override
+  String get cloudflareVerificationIncomplete => 'Verification is not complete yet. Please finish the challenge first.';
 }

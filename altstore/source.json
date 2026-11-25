@@ -29,6 +29,16 @@
       "minOSVersion": "15.0",
       "versions": [
         {
+          "version": "1.2.6",
+          "buildVersion": "27",
+          "date": "2026-11-25T05:12:54Z",
+          "localizedDescription": "### 更新内容\n- 重构收藏界面。\n- 重构设置界面。\n- 重构历史记录界面。\n- 重构搜索界面。\n- 重构下载界面。\n- 重构新番预告界面。\n- 替换底部导航栏组件。\n- 优化播放界面。\n- 修复评论相关问题。\n- 修复部分文本问题。\n- 修复设置卡顿问题。\n- 优化动画表达。\n- 优化设置卡片组件ui。\n- 增加观看足迹。\n- 去除统计界面。\n- #124  #125 尝试性修复cloudflare认证相关问题。",
+          "downloadURL": "https://github.com/1wc10086/Han1mePlus/releases/download/1.2.6/iphone.arm64.ipa",
+          "size": 20003323,
+          "minOSVersion": "15.0",
+          "sha256": "944544df7826b3ce31d22fe25a5fefda2c33e578ba873a4e739982b46d2e6768"
+        },
+        {
           "version": "1.2.5",
           "buildVersion": "26",
           "date": "2026-11-18T05:21:38Z",
